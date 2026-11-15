@@ -413,3 +413,54 @@ test('deleting an account removes its WHOOP files even when WHOOP is switched of
   assert.equal(fs.existsSync(path.join(c.dataDir, 'whoop', 'u-u1.json')), false);
   assert.equal(fs.existsSync(path.join(c.dataDir, 'integrations', 'u-u1.json')), false);
 });
+
+/* ---- whoop-activities A1: WHOOP workouts become activities ---- */
+
+const { whoopActivityId } = await import('../integrations/whoop/activities.js');
+
+test('a WHOOP run becomes one activity with its WHOOP details, written once and never again', async () => {
+  const w = fakeWhoop();
+  const run = rec.workout({ start: T0 - DAY, end: T0 - DAY + 42 * MIN, km: 8.1, strain: 11.2 });
+  w.workout.push(run);
+  const c = await backfilled({ w });
+  const id = whoopActivityId(run.id);
+  const { _ts, ...a } = c.profile.S.activities[id];
+  assert.deepEqual(a, { d: '2026-11-14', sport: 'run', min: 42, at: T0 - DAY, durMs: 42 * MIN, src: 'whoop', wu: run.id, wa: '4242', km: 8.1, strain: 11.2, hr: 140, hrMax: 172, kj: 1500 });
+  assert.ok(_ts > 0);
+  // the id does not depend on anything but the WHOOP workout
+  assert.equal(whoopActivityId(run.id), id);
+  const writes = c.profile.writes;
+  c.clock.t += 16 * MIN;
+  await c.sync.tick();
+  assert.equal(c.profile.writes, writes);
+});
+
+test('an activity the person removed is never imported again', async () => {
+  const w = fakeWhoop();
+  const run = rec.workout({ start: T0 - DAY, end: T0 - DAY + 3600_000 });
+  w.workout.push(run);
+  const id = whoopActivityId(run.id);
+  const c = await setup({ w, S: { activities: { [id]: { _ts: 1 } } } });
+  await c.sync.tick();
+  assert.deepEqual(c.profile.S.activities[id], { _ts: 1 });
+});
+
+test('the day is the workout’s own local day; strength work is marked; a 20-second session is a minute', async () => {
+  const w = fakeWhoop();
+  // 23:30 in Riyadh is 20:30 UTC: the 14th there, whatever zone the server runs in
+  const late = rec.workout({ start: Date.UTC(2026, 10, 14, 20, 30), end: Date.UTC(2026, 10, 14, 21, 30), offset: '+03:00' });
+  // 00:30 local the next day, still the 14th in UTC
+  const night = rec.workout({ start: Date.UTC(2026, 10, 14, 21, 30), end: Date.UTC(2026, 10, 14, 22, 0), offset: '+03:00' });
+  const lift = rec.workout({ start: T0 - 2 * DAY, end: T0 - 2 * DAY + 3600_000, sport: 'weightlifting' });
+  const blip = rec.workout({ start: T0 - 3 * DAY, end: T0 - 3 * DAY + 20_000 });
+  w.workout.push(late, night, lift, blip);
+  const c = await backfilled({ w });
+  const A = c.profile.S.activities;
+  assert.equal(A[whoopActivityId(late.id)].d, '2026-11-14');
+  assert.equal(A[whoopActivityId(night.id)].d, '2026-11-15');
+  assert.equal(A[whoopActivityId(lift.id)].st, 1);
+  assert.equal(A[whoopActivityId(lift.id)].sport, 'other');
+  assert.equal(A[whoopActivityId(lift.id)].title, 'Weightlifting');
+  assert.equal(A[whoopActivityId(blip.id)].min, 1);
+  assert.equal(A[whoopActivityId(blip.id)].durMs, 20_000);
+});

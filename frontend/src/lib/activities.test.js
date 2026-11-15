@@ -146,3 +146,13 @@ describe('activities: imports', () => {
   })
 })
 
+
+describe('activities: WHOOP (fork)', () => {
+  it('a WHOOP entry keeps its source and its WHOOP fields; a broken field is dropped, not the entry', () => {
+    const e = { d: '2026-11-14', sport: 'run', min: 42, at: 1, durMs: 2520000, src: 'whoop', wu: '00000000-0000-4000-8000-000000000001', wa: '4242', strain: 11.2, hr: 140, hrMax: 172, kj: 1500, st: 1 }
+    expect(readActivity(e)).toEqual(e)
+    expect(readActivity({ ...e, hr: 'fast', wu: 'nope' })).toEqual((({ hr, wu, ...rest }) => rest)(e))
+    // another source does not pick up WHOOP fields
+    expect(readActivity({ ...e, src: 'hc' }).strain).toBeUndefined()
+  })
+})

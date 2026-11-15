@@ -38,7 +38,7 @@ export const SPORT_ICON = {
 // The durations the sheet offers in one tap, in minutes.
 export const SPORT_PRESETS = [30, 60, 90]
 export const ACTIVITY_MIN_MAX = 24 * 60
-export const SOURCES = ['hc', 'ah', 'import', 'manual', 'or']
+export const SOURCES = ['hc', 'ah', 'import', 'manual', 'or', 'whoop']
 const TITLE_MAX = 80
 
 // What a sport asks of the muscles, for the recovery model: per 30 minutes, in hard-set
@@ -84,7 +84,25 @@ export function readActivity(entry) {
     ...(title ? { title } : {}),
     ...(note ? { note } : {}),
     src: SOURCES.includes(entry.src) ? entry.src : 'manual',
+    ...(entry.src === 'whoop' ? whoopFields(entry) : {}),
   }
+}
+
+// What a WHOOP activity carries besides the common fields (api/integrations/whoop/activities.js):
+// its WHOOP workout and account, the exact length, whether it is strength work, the person's own
+// edit mark, and WHOOP's strain, heart rate and energy.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const inRange = (v, lo, hi) => { const n = Number(v); return Number.isFinite(n) && n >= lo && n <= hi ? n : undefined }
+function whoopFields(e) {
+  const out = {
+    wu: UUID.test(String(e.wu || '')) ? e.wu : undefined,
+    wa: typeof e.wa === 'string' && /^\d{1,19}$/.test(e.wa) ? e.wa : undefined,
+    durMs: inRange(e.durMs, 1, ACTIVITY_MIN_MAX * 60000),
+    st: e.st === 1 ? 1 : undefined,
+    edited: e.edited === 1 ? 1 : undefined,
+    strain: inRange(e.strain, 0, 30), hr: inRange(e.hr, 20, 260), hrMax: inRange(e.hrMax, 20, 260), kj: inRange(e.kj, 0, 100000),
+  }
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined))
 }
 
 /** Every activity, newest day first, as { id, d, sport, min, … }. */
