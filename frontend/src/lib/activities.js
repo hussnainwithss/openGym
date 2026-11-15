@@ -24,7 +24,7 @@
 // never makes a second one, and a removed one is never brought back (the stamp stays).
 import { NOTE_MAX } from './history.js'
 import { hashId } from './weigh-ins.js'
-import { effectiveActivity, choiceOf, CHOICES } from '../../../api/coach/core/whoop-activities.js'
+import { effectiveActivity, choiceOf, CHOICES, workoutKeyOf } from '../../../api/coach/core/whoop-activities.js'
 
 export const SPORTS = ['run', 'ride', 'swim', 'hike', 'row', 'ski', 'football', 'racket', 'ball', 'climb', 'fight', 'yoga', 'dance', 'other']
 export const SPORT_LABEL = {
@@ -159,7 +159,7 @@ export function withChoice(map, id, ov, now = Date.now()) {
 
 /** The WHOOP sessions merged into workout `w` (its strain, heart rate and energy), newest first. */
 export const whoopForWorkout = (S, w) => {
-  const key = w?.id != null ? String(w.id) : `${w?.d}|${w?.start}`
+  const key = workoutKeyOf(w)
   return activitiesOf(S, { all: true }).filter(a => a.ov === 'merge' && a.wid === key)
 }
 

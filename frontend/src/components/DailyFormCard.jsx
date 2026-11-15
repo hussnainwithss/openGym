@@ -4,6 +4,7 @@
 // Patterns only once there is enough to compare, with the counts on both sides and a plain word on
 // how sure it is. Shown with the Health module on, once there is a check-in or a vital to show.
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { t, tn } from '../lib/i18n.js'
 import { fmtNum, todayISO } from '../lib/format.js'
 import { MOBILE, nativePlatform } from '../lib/mobile.js'
@@ -156,7 +157,7 @@ function WhoopToday({ day, hm }) {
     <div className="dfc-vitals">
       {rows.map(([label, value, unit]) => <Vital key={label} label={label} value={value} unit={typeof value === 'number' || /\d/.test(String(value)) ? unit : ''} />)}
     </div>
-    <div className="small dim dfc-src">From WHOOP, pulled by your server. <a href="#/whoop">History and trends</a></div>
+    <div className="small dim dfc-src">From WHOOP, pulled by your server. <Link to="/whoop">History and trends</Link></div>
   </div>
 }
 

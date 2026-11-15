@@ -25,6 +25,7 @@ import { calendarSheet } from '../components/CalendarFeed.jsx'
 import { useNutritionLink, nutritionSheet } from '../components/SisterApps.jsx'
 import { getCalendar } from '../lib/api-tokens.js'
 import { activitiesOf, activityName } from '../lib/activities.js'
+import { CHOICES } from '../../../api/coach/core/whoop-activities.js'
 import { activitySheet } from '../components/ActivitySheet.jsx'
 
 /* Settings → Integrations (v1.4.4): one directory of what openGym can talk to, grouped, each card
@@ -147,7 +148,7 @@ export default function IntegrationsPage({ android = false, ios = false }) {
   useEffect(() => {
     const q = new URLSearchParams(loc.search)
     const intg = q.get('intg')
-    if (intg === 'whoop') toast(q.get('connected') ? 'WHOOP connected. Your history is on its way, this can take a while.' : WHOOP_ERRORS[q.get('error')] || 'WHOOP could not be connected. Try again.')
+    if (intg === 'whoop') toast(q.get('connected') ? 'WHOOP connected. Your history is on its way, this can take a while.' : whoopMessage(WHOOP_ERRORS, q.get('error'), 'WHOOP could not be connected. Try again.'))
     else if (intg === 'strava') toast(q.get('connected') ? t('Strava connected. Your next workout goes up by itself.') : t(STRAVA_ERRORS[q.get('error')] || 'Strava could not be connected. Try again.'))
     else return
     server.load()
@@ -576,6 +577,19 @@ const WHOOP_ERRORS = {
   profile: 'WHOOP did not say whose account this is. Try again.',
 }
 
+// What WHOOP's sync and check say, by their code (api/integrations/whoop/client.js, sync.js), so
+// no server or network text reaches the screen.
+const WHOOP_SYNC = {
+  reconnect: 'WHOOP no longer accepts this sign-in. Reconnect it.',
+  lost: 'A sign-in refresh went missing on the way. Reconnect WHOOP.',
+  rate: 'WHOOP asked to slow down. Trying again shortly.',
+  network: 'Could not reach WHOOP. Trying again shortly.',
+  http: 'WHOOP had a problem answering. Trying again shortly.',
+  gone: 'Disconnected.',
+}
+/** The fixed message for `code` in `map`, or `fallback`: a code from a URL or a reply is only a key. */
+const whoopMessage = (map, code, fallback) => (typeof code === 'string' && Object.hasOwn(map, code) ? map[code] : fallback)
+
 // Like Strava: a trip to WHOOP and back to this server's address, from a browser with its session.
 function startWhoop(card) {
   if (MOBILE) return infoSheet(card, 'Connect WHOOP once from openGym in a browser, signed in to your server. Your server then pulls your WHOOP data, and every device gets it.', INTEGRATIONS_DOCS + '#whoop')
@@ -597,7 +611,7 @@ function WhoopDetail({ close, conn: initial, server, toast }) {
       if (r?.connection) setC(r.connection)
       after?.(r)
       server.load()
-    } catch (e) { toast?.(errText(e, 'Something went wrong')) }
+    } catch { toast?.('Something went wrong. Try again.') }
     setBusy(false)
   }
   const trouble = c.status === 'attention'
@@ -617,12 +631,12 @@ function WhoopDetail({ close, conn: initial, server, toast }) {
       {c.info?.backfill && c.info.backfill !== 'done' && <Row icon="download" iconTint="var(--blue)" title="Bringing in your history" value={c.info.backfill} />}
       <Row icon="clock" iconTint="var(--blue)" title="Last sync" value={c.lastOk ? fmtAgo(c.lastOk) : t('Not yet')} />
       <Row icon="chart" iconTint="var(--teal)" title="History and trends" accessory="chevron" onClick={() => { close(); window.location.hash = '#/whoop' }} />
-      {c.lastError && <Row icon="warning" iconTint={trouble ? 'var(--orange)' : 'var(--grey)'} title={<span className="intg-line">{c.lastError.msg}</span>}
+      {c.lastError && <Row icon="warning" iconTint={trouble ? 'var(--orange)' : 'var(--grey)'} title={<span className="intg-line">{whoopMessage(WHOOP_SYNC, c.lastError.code, 'Something went wrong with WHOOP.')}</span>}
         subtitle={c.lastError.at ? fmtAgo(c.lastError.at) : null} />}
     </Section>
     <WhoopStrengthSettings close={close} />
     <div className="sect-b intg-acts">
-      <ActRow icon="bolt" label={t('Check the connection')} disabled={busy} onClick={() => call('/api/integrations/test', {}, r => toast?.(r?.ok ? 'WHOOP answers' : 'Check failed: ' + (r?.msg || '')))} />
+      <ActRow icon="bolt" label={t('Check the connection')} disabled={busy} onClick={() => call('/api/integrations/test', {}, r => toast?.(r?.ok ? 'WHOOP answers' : whoopMessage(WHOOP_SYNC, r?.code, 'The check did not go through.')))} />
       {trouble && <ActRow icon="reset" label={t('Reconnect')} disabled={busy} onClick={() => startWhoop({ icon: 'heart', name: 'WHOOP', state: {} })} />}
     </div>
     <DangerRow label={t('Disconnect')} disabled={busy} onClick={disconnect} />
@@ -631,16 +645,16 @@ function WhoopDetail({ close, conn: initial, server, toast }) {
 
 // WHOOP strength sessions that overlap a workout logged here (D10, D21): the default for new ones,
 // and every session merged or skipped, to open and change one by one.
-const STRENGTH_DEFAULTS = [['keep', 'Keep as activities'], ['merge', 'Merge into the workout'], ['skip', 'Skip them']]
+const STRENGTH_LABEL = { keep: 'Keep as activities', merge: 'Merge into the workout', skip: 'Skip them' }
 function WhoopStrengthSettings({ close }) {
   const S = useStore(s => s.S)
   const update = useStore(s => s.update)
-  const cur = ['keep', 'merge', 'skip'].includes(S.whoopStrength) ? S.whoopStrength : 'keep'
+  const cur = CHOICES.includes(S.whoopStrength) ? S.whoopStrength : 'keep'
   const hidden = activitiesOf(S, { all: true }).filter(a => a.ov && a.ov !== 'keep')
   return <Section footer="When a WHOOP strength session overlaps a workout you logged in openGym. You can change each one on its own.">
     <Row icon="dumbbell" iconTint="var(--orange)" title="WHOOP strength sessions">
       <select className="input" aria-label="WHOOP strength sessions" value={cur} onChange={e => update(s => { s.whoopStrength = e.target.value })}>
-        {STRENGTH_DEFAULTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        {CHOICES.map(v => <option key={v} value={v}>{STRENGTH_LABEL[v]}</option>)}
       </select>
     </Row>
     {hidden.map(a => <Row key={a.id} icon="heart" iconTint="var(--teal)" title={activityName(a, t)}

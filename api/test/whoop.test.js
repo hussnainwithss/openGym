@@ -48,7 +48,7 @@ test('a callback stores one connection with the WHOOP user id; the state works o
   assert.equal(out.uid, 'u1');
   assert.equal(out.connection.provider, 'whoop');
   assert.equal(out.connection.info.whoopUser, '4242');
-  assert.equal(out.connection.label, 'Ana Lift');
+  assert.equal(out.connection.label, 'WHOOP');   // the account holder's name is never kept
   await assert.rejects(h.oauthFinish({ state: st2, code: 'good' }, 'u1'), e => e.status === 400 && e.code === 'state');
   // the token exchange sent the same redirect address
   const ex = w.calls.find(c => c.form?.grant_type === 'authorization_code');
@@ -148,4 +148,40 @@ test('refresh failures by what they prove: refused, busy, never sent, answer los
   assert.equal(conn.lastError.code, 'lost');
   await lost.h.test('u1', lost.id);
   assert.equal(refreshes(lost.w).length, 1);
+});
+
+/* ---- review fixes ---- */
+
+test('a sign-in link opened in another browser cannot finish on the profile that started it', async () => {
+  const { h } = hub();
+  const { url, bind } = h.oauthStartBound('u1', 'whoop', CB);
+  const st = stateOf(url);
+  // the victim's browser: no session here, and no binding cookie
+  await assert.rejects(h.oauthFinish({ state: st, code: 'good' }, null, null), e => e.code === 'state');
+  assert.equal(h.describe('u1').connections.length, 0);
+  const again = h.oauthStartBound('u1', 'whoop', CB);
+  await assert.rejects(h.oauthFinish({ state: stateOf(again.url), code: 'good' }, null, bind), e => e.code === 'state');
+  const ok = h.oauthStartBound('u1', 'whoop', CB);
+  assert.equal((await h.oauthFinish({ state: stateOf(ok.url), code: 'good' }, null, ok.bind)).connection.provider, 'whoop');
+});
+
+test('one profile keeps at most two WHOOP sign-ins waiting; others can still start', async () => {
+  const { h } = hub();
+  const states = [];
+  for (let i = 0; i < 15; i++) states.push(stateOf(h.oauthStart('u1', 'whoop', CB)));
+  // only the two newest still work
+  await assert.rejects(h.oauthFinish({ state: states[0], code: 'good' }, 'u1'), e => e.code === 'state');
+  assert.ok(h.oauthStart('u2', 'whoop', CB));
+  assert.equal((await h.oauthFinish({ state: states[14], code: 'good' }, 'u1')).connection.provider, 'whoop');
+});
+
+test('checking the connection over and over cannot use up the budget everyone’s sync runs on', async () => {
+  const c = await connected();
+  const results = [];
+  for (let i = 0; i < 15; i++) results.push(await c.h._whoop().check('u1', c.id));
+  assert.equal(results.filter(r => r.ok).length, 10);
+  assert.equal(results.at(-1).code, 'rate');
+  // a sync's request still goes through
+  const r = await c.h._whoop().withGate('u1', c.id, () => c.h._whoop().get('u1', c.id, '/v2/user/profile/basic'));
+  assert.equal(r.status, 200);
 });

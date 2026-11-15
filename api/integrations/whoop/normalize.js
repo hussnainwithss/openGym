@@ -28,7 +28,7 @@ export function offsetOf(v) {
   return min > 14 * 60 ? null : (m[1] === '-' ? -min : min);
 }
 const num = v => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined);
-const stateOf = v => STATES[v] || 'pending';
+const stateOf = v => (typeof v === 'string' && Object.hasOwn(STATES, v) ? STATES[v] : 'pending');
 // Drops undefined fields so stored records stay small and compare cleanly.
 const clean = o => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 

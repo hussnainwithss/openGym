@@ -554,6 +554,16 @@ function commitState(uid, cur, state, { overRead = false, stamped = false } = {}
     if (want === undefined) delete state[k]; else state[k] = JSON.parse(JSON.stringify(want));
     report.changed = true;
   }
+  // The person's WHOOP choices (fork) per entry, the later stamp winning: an app that does not know
+  // this map (the published one) sends it whole, possibly without an entry another device added.
+  if (cur?.whoopChoice && typeof cur.whoopChoice === 'object') {
+    const sent = state.whoopChoice && typeof state.whoopChoice === 'object' && !Array.isArray(state.whoopChoice) ? state.whoopChoice : {};
+    const merged = { ...sent };
+    for (const [id, e] of Object.entries(cur.whoopChoice)) {
+      if (!merged[id] || (Number(e?._ts) || 0) > (Number(merged[id]?._ts) || 0)) merged[id] = e;
+    }
+    if (JSON.stringify(merged) !== JSON.stringify(state.whoopChoice)) { state.whoopChoice = merged; report.changed = true; }
+  }
   try { stampPut(cur, state, { overRead, stamped, report }); }
   catch (e) { if (e instanceof RangeError) return { status: 400, body: { error: 'invalid state' } }; throw e; }
   state._rev = curRev + 1;          // server-owned; whatever the client sent is ignored

@@ -129,7 +129,7 @@ Design choices
 - Fetch and projection are separate phases. writeStateAs throws 409 not-synced for a profile with no document: store sets `dirty`, next tick retries the projection.
 - Cursors live in the WHOOP store, not the hub record (capRecord would drop them).
 - Batching: at most 40 pages per user per tick; at most one writeStateAs per tick; WHOOP store writes as the R1 commit order needs (before and after the profile write). Crash tests run against the real file store.
-- Pacing: provider bucket 60/min plus daily counter 8,000 (WHOOP limits to confirm in C1).
+- Pacing: at most 90 requests a minute and 9,500 a day across the server (WHOOP allows 100 and 10,000), with "Check the connection" capped at 10 a minute and 500 a day of that.
 - A tick whose connection id is gone discards its result. Single api process assumed.
 
 Blast radius

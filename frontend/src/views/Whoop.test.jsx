@@ -25,3 +25,14 @@ describe('WHOOP page: where the days come from', () => {
     expect(r.days.map(d => d.d)).toEqual(['2026-11-14'])
   })
 })
+
+describe('WHOOP days are read through one mapper', () => {
+  it('a server day without a real date or with junk is dropped; an unknown score state is its own word', async () => {
+    const { partValue } = await import('../lib/whoop-days.js')
+    const get = async () => ({ days: [{ d: '2026-11-14', rec: 'lots', hrv: 50, st: { rec: 'scored-ish', sleep: 'unscorable' } }, { d: 'yesterday', rec: 1 }, null, 7] })
+    const r = await loadDays({}, '2026-11-15', 30, get)
+    expect(r.days).toEqual([{ d: '2026-11-14', hrv: 50, st: { rec: 'unknown', sleep: 'unscorable' } }])
+    expect(partValue(r.days[0], 'rec', 'rec')).toBe('unknown')
+    expect(partValue(r.days[0], 'sleep', 'sleepMin')).toBe('not scored')
+  })
+})

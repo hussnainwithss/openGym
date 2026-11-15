@@ -5,6 +5,7 @@
 import React, { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createRoot } from 'react-dom/client'
+import { MemoryRouter } from 'react-router-dom'
 import { DEF } from '../store/useStore.js'
 import DailyFormCard from './DailyFormCard.jsx'
 import { todayISO } from '../lib/format.js'
@@ -21,7 +22,7 @@ const day = { rec: 66, hrv: 61.5, rhr: 52, spo2: 96.4, skin: 33.7, sleepMin: 425
 describe('Daily form card: WHOOP today', () => {
   it('shows today’s WHOOP numbers with Health off, and none of the Health parts', () => {
     const S = { ...clone(DEF), modules: { health: false, integrations: true }, dailyForm: true, dayForm: { [today]: { sleep: 4, energy: 4, sore: 2, stress: 2, _ts: 1 } }, whoopDays: { [today]: day } }
-    act(() => root.render(<DailyFormCard S={S} />))
+    act(() => root.render(<MemoryRouter><DailyFormCard S={S} /></MemoryRouter>))
     const w = host.querySelector('[data-whoop-today]')
     expect(w).toBeTruthy()
     expect(w.textContent).toContain('66')
@@ -32,12 +33,12 @@ describe('Daily form card: WHOOP today', () => {
   })
   it('with Integrations off: no WHOOP block', () => {
     const S = { ...clone(DEF), modules: { integrations: false }, dailyForm: true, whoopDays: { [today]: day } }
-    act(() => root.render(<DailyFormCard S={S} />))
+    act(() => root.render(<MemoryRouter><DailyFormCard S={S} /></MemoryRouter>))
     expect(host.querySelector('[data-whoop-today]')).toBeNull()
   })
   it('a recovery WHOOP has not scored yet says pending, never yesterday’s', () => {
     const S = { ...clone(DEF), modules: { health: false }, whoopDays: { [yesterday]: day, [today]: { sleepMin: 400, st: { sleep: 'scored', rec: 'pending' }, _ts: 2 } } }
-    act(() => root.render(<DailyFormCard S={S} />))
+    act(() => root.render(<MemoryRouter><DailyFormCard S={S} /></MemoryRouter>))
     const w = host.querySelector('[data-whoop-today]')
     expect(w.textContent).toContain('pending')
     expect(w.textContent).not.toContain('66')

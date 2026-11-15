@@ -697,3 +697,35 @@ test('API tokens never see WHOOP days or the server’s own notes', () => {
   assert.equal(out.whoopSeen, undefined);
   assert.equal(scopedState(S, { plans: 'view' }).whoopActs, undefined);
 });
+
+/* ---- review fixes ---- */
+
+test('a score_state or webhook type that is a name off Object.prototype is not trusted', async () => {
+  const { workout } = await import('../integrations/whoop/normalize.js');
+  for (const s of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
+    const r = workout({ id: 'aaaaaaaa-0000-4000-8000-000000000001', start: '2026-01-01T00:00:00Z', end: '2026-01-01T01:00:00Z', score_state: s }, T0);
+    assert.equal(r.st, 'pending', s);
+  }
+  const c = await backfilled();
+  assert.deepEqual(deliver(c, { user_id: 4242, id: 'aaaaaaaa-0000-4000-8000-000000000009', type: 'toString', trace_id: 'p3' }), { ok: true });
+});
+
+test('GET /api/whoop/days refuses dates that do not exist', async () => {
+  const c = await backfilled();
+  for (const [f, t] of [['2020-01-01', '2024-99-99'], ['0000-00-00', '9999-99-99'], ['2024-13-01', '2026-12-31']]) {
+    assert.throws(() => c.h.whoopDays('u1', f, t), e => e.status === 400, `${f}..${t}`);
+  }
+});
+
+test('Disconnect forgets the sign-in and keeps everything imported', async () => {
+  const w = fakeWhoop();
+  history(w, 2);
+  const c = await backfilled({ w });
+  const before = JSON.stringify(c.profile.S);
+  c.h.disconnect('u1', c.id);
+  assert.equal(c.h.describe('u1').connections.length, 0);
+  assert.ok(fs.existsSync(path.join(c.dataDir, 'whoop', 'u-u1.json')));
+  assert.equal(Object.keys(c.doc().records.cycle).length, 2);
+  assert.equal(JSON.stringify(c.profile.S), before);
+  assert.ok(c.h.whoopDays('u1', '2026-01-01', '2026-11-30').days.length > 0);
+});

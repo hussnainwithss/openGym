@@ -103,3 +103,33 @@ test('GET /api/whoop/days reads the server’s WHOOP history, older than the pro
   assert.equal((await get('?from=nope&to=2024-11-30')).status, 400);
   assert.equal((await get('?from=2024-10-15&to=2024-11-30', false)).status, 401);
 });
+
+test('a WHOOP choice another device added survives a write from an app that sends the map without it', async t => {
+  const h = await startServer(t, WHOOP);
+  const stored = { _rev: 2, unit: 'kg', workouts: [], routines: [], whoopChoice: { a: { ov: 'skip', _ts: 100 } } };
+  fs.writeFileSync(path.join(h.dataDir, 'state-u_w_1.json'), JSON.stringify(stored));
+  const headers = { Cookie: `gymsid=${mintSession('u_w_1')}`, 'Sec-Fetch-Site': 'same-origin', 'Content-Type': 'application/json' };
+  const put = await fetch(h.api + '/api/data', { method: 'PUT', headers, body: JSON.stringify({ state: { ...stored, whoopChoice: { b: { ov: 'keep', _ts: 120 } } }, baseRev: 2, stamped: true }) });
+  assert.equal(put.status, 200);
+  const doc = JSON.parse(fs.readFileSync(path.join(h.dataDir, 'state-u_w_1.json'), 'utf8'));
+  assert.deepEqual(doc.whoopChoice, { a: { ov: 'skip', _ts: 100 }, b: { ov: 'keep', _ts: 120 } });
+});
+
+test('the sign-in start sets a browser binding cookie, and a callback without it is refused before anything is exchanged', async t => {
+  const h = await startServer(t, WHOOP);
+  const r = await fetch(h.api + '/api/integrations/oauth/start?provider=whoop', { redirect: 'manual', headers: { Cookie: `gymsid=${mintSession('u_w_1')}`, 'Sec-Fetch-Site': 'same-origin' } });
+  const cookie = r.headers.get('set-cookie');
+  const parts = cookie.split('; ');
+  assert.match(parts[0], /^og_oauth_bind=[A-Za-z0-9_-]+$/);
+  assert.deepEqual(parts.slice(1), ['Path=' + '/api/integrations/oauth', 'Max-Age=600', 'HttpOnly', 'SameSite=Lax', 'Secure']);
+  const state = new URL(r.headers.get('location')).searchParams.get('state');
+  const cb = await fetch(h.api + '/api/integrations/oauth/callback?state=' + state + '&code=x', { redirect: 'manual' });
+  assert.equal(cb.headers.get('location'), 'https://gym.example.com/#/settings/integrations?intg=whoop&error=state');
+});
+
+test('an API token cannot change WHOOP data only the server writes', async () => {
+  const { mergeScoped } = await import('../tokens.js');
+  const cur = { activities: {}, whoopActs: { w1: { gone: 1, _ts: 1 } } };
+  assert.throws(() => mergeScoped(cur, { whoopActs: {} }, { workouts: 'apply' }), e => e.status === 403);
+  assert.doesNotThrow(() => mergeScoped(cur, { whoopActs: cur.whoopActs }, { workouts: 'apply' }));
+});

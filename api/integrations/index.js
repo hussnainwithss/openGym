@@ -120,6 +120,8 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
   const pendingStates = new Map();   // state -> { u, p, e, redirectUri }
   const PENDING_MAX = 1000;
   const shortState = () => crypto.randomBytes(6).toString('base64url');
+  const bindHash = v => crypto.createHmac('sha256', stateKey || 'none').update('opengym-oauth-bind v1:' + v).digest('base64url');
+  const sameText = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
   // Per profile, the number of the latest WHOOP sign-in started (or disconnect): a callback that
   // comes back after a newer one, or after a disconnect, is stale.
   const attempts = new Map();
@@ -244,8 +246,16 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
       return { ok: !!res.ok, status: res.status ?? null, ms: res.ms ?? null, msg: res.ok ? null : res.msg, connection: view(uid, store.get(uid, id)) };
     },
 
+    /** oauthStart, bound to the browser that asks: → { url, bind }. `bind` goes into a cookie the
+     *  callback has to bring back, so a sign-in link sent to someone else cannot finish on the
+     *  sender's profile (that person's WHOOP data would land there). */
+    oauthStartBound(uid, providerId, redirectUri) {
+      const bind = crypto.randomBytes(18).toString('base64url');
+      return { url: hub.oauthStart(uid, providerId, redirectUri, bindHash(bind)), bind };
+    },
+
     /** OAuth (Strava): where to send the person to sign in, with a state bound to them. */
-    oauthStart(uid, providerId, redirectUri) {
+    oauthStart(uid, providerId, redirectUri, bh = null) {
       if (!active) off();
       const p = providers[providerId];
       if (!p || p.kind !== 'oauth') fail(404, 'no such integration', 'missing');
@@ -253,21 +263,27 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
       userLimit(uid, 'act');
       if (p.stateLen === 8) {
         for (const [k, v] of pendingStates) if (v.e <= now()) pendingStates.delete(k);
+        // At most two sign-ins waiting per profile: a new one pushes out the oldest, so a few
+        // accounts cannot fill the server-wide cap for everyone else.
+        const mine = [...pendingStates].filter(([, v]) => v.u === uid);
+        while (mine.length >= 2) pendingStates.delete(mine.shift()[0]);
         if (pendingStates.size >= PENDING_MAX) fail(429, 'too many sign-ins waiting, try again in a few minutes', 'rate');
         let state = shortState();
         while (pendingStates.has(state)) state = shortState();
-        pendingStates.set(state, { u: uid, p: p.id, e: now() + OAUTH_STATE_MS, redirectUri, seq: bump(uid) });
+        pendingStates.set(state, { u: uid, p: p.id, e: now() + OAUTH_STATE_MS, redirectUri, seq: bump(uid), ...(bh ? { bh } : {}) });
         return p.authorizeUrl({ state, redirectUri });
       }
-      const state = signState({ u: uid, p: p.id, n: crypto.randomBytes(9).toString('base64url'), e: now() + OAUTH_STATE_MS });
+      const state = signState({ u: uid, p: p.id, n: crypto.randomBytes(9).toString('base64url'), e: now() + OAUTH_STATE_MS, ...(bh ? { b: bh } : {}) });
       return p.authorizeUrl({ state, redirectUri });
     },
 
     /** The callback: the state checked (its profile, its time, once), the code for tokens, the
      *  connection stored (a second sign-in replaces the first). `sessionUid` is the signed-in
      *  profile if the browser sent its cookie, which then has to be the state's. → { uid, connection } */
-    async oauthFinish(query, sessionUid = null) {
+    async oauthFinish(query, sessionUid = null, bind = null) {
       if (!active) off();
+      // A state started through oauthStartBound only finishes in the browser holding its cookie.
+      const bound = want => !want || (typeof bind === 'string' && bind.length <= 64 && sameText(bindHash(bind), want));
       const raw = query?.state;
       let st, redirectUri, seq = null;
       if (typeof raw === 'string' && raw.length === 8) {
@@ -276,11 +292,13 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
         pendingStates.delete(raw);
         if (!pend || !(pend.e > now())) fail(400, 'that sign-in link is old or not ours, start again', 'state');
         if (sessionUid && sessionUid !== pend.u) fail(403, 'signed in as someone else', 'state', pend.p);
+        if (!bound(pend.bh)) fail(400, 'that sign-in was started in another browser, start again here', 'state', pend.p);
         st = pend; redirectUri = pend.redirectUri; seq = pend.seq;
       } else {
         st = readState(raw);
         if (!st || typeof st.u !== 'string' || !(st.e > now())) fail(400, 'that sign-in link is old or not ours, start again', 'state');
         if (sessionUid && sessionUid !== st.u) fail(403, 'signed in as someone else', 'state', st.p);
+        if (!bound(st.b)) fail(400, 'that sign-in was started in another browser, start again here', 'state', st.p);
         if (usedNonces.has(st.n)) fail(400, 'that sign-in link was used already', 'state', st.p);
         for (const [n, e] of usedNonces) if (e <= now()) usedNonces.delete(n);
         usedNonces.set(st.n, st.e);
@@ -369,7 +387,7 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
       if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) return { ok: false, status: 401 };
       let ev;
       try { ev = JSON.parse(raw.toString('utf8')); } catch { return { ok: false, status: 400 }; }
-      const coll = WEBHOOK_TYPES[ev?.type];
+      const coll = typeof ev?.type === 'string' && Object.hasOwn(WEBHOOK_TYPES, ev.type) ? WEBHOOK_TYPES[ev.type] : null;
       const id = typeof ev?.id === 'string' ? ev.id.toLowerCase() : '';
       // An event type we do not use is acknowledged, as WHOOP asks.
       if (!coll) return { ok: true };
@@ -400,8 +418,9 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
      *  inclusive, at most 400 days). Kept after a disconnect, like everything imported (D12). */
     whoopDays(uid, from, to) {
       const iso = /^\d{4}-\d{2}-\d{2}$/;
-      if (!iso.test(String(from)) || !iso.test(String(to)) || from > to) fail(400, 'from and to must be dates, from first', 'range');
-      if ((Date.parse(to) - Date.parse(from)) / 86_400_000 > 400) fail(400, 'at most 400 days at a time', 'range');
+      const f = Date.parse(from), t = Date.parse(to);
+      if (!iso.test(String(from)) || !iso.test(String(to)) || !Number.isFinite(f) || !Number.isFinite(t) || from > to) fail(400, 'from and to must be dates, from first', 'range');
+      if ((t - f) / 86_400_000 > 400) fail(400, 'at most 400 days at a time', 'range');
       let doc;
       try { doc = whoopStore.load(uid); }
       catch (e) { console.error('whoop: cannot read the store of', uid, e.message); fail(503, 'your WHOOP history cannot be read right now', 'unreadable'); }

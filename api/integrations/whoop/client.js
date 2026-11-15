@@ -21,6 +21,8 @@ import { API_BASE, request } from '../providers/whoop.js';
 export const REFRESH_EARLY_MS = 120_000;
 export const MINUTE_MAX = 90;
 export const DAY_MAX = 9500;
+export const CHECK_MAX = 10;
+export const CHECK_DAY_MAX = 500;
 
 export class WhoopError extends Error {
   constructor(code, message, extra = {}) { super(message); this.code = code; Object.assign(this, extra); }
@@ -31,6 +33,7 @@ export function createWhoopClient({ provider, store, now = Date.now, fetchFn = p
   let blockedUntil = 0;
   const minute = { start: 0, n: 0 };
   const day = { start: 0, n: 0 };
+  const checks = { start: 0, n: 0, dayStart: 0, day: 0 };
 
   /** Runs `fn` with this connection's gate held. */
   function withGate(uid, connId, fn) {
@@ -141,8 +144,15 @@ export function createWhoopClient({ provider, store, now = Date.now, fetchFn = p
   return {
     withGate,
     get,
-    /** "Check the connection": reads the profile, refreshing the sign-in if it needs to. */
+    /** "Check the connection": reads the profile, refreshing the sign-in if it needs to. The
+     *  checks of every person together get at most CHECK_MAX requests a minute, so tapping it
+     *  cannot use up the budget everyone's sync runs on. */
     check(uid, connId) {
+      const t = now();
+      if (t - checks.start >= 60_000) { checks.start = t; checks.n = 0; }
+      if (t - checks.dayStart >= 86_400_000) { checks.dayStart = t; checks.day = 0; }
+      if (checks.n >= CHECK_MAX || checks.day >= CHECK_DAY_MAX) return Promise.resolve({ ok: false, retry: true, code: 'rate', msg: 'Checked a lot just now, try again in a minute.' });
+      checks.n++; checks.day++;
       return withGate(uid, connId, async () => {
         try {
           const r = await get(uid, connId, '/v2/user/profile/basic');

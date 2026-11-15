@@ -83,7 +83,9 @@ test('a callback that is not ours, or a refusal, goes back with the reason', asy
   // a real state, but the person said no on Strava's page
   const r = await go(h, '/api/integrations/oauth/start?provider=strava', page('u_t_1'));
   const state = new URL(r.headers.get('location')).searchParams.get('state');
-  const no = await go(h, '/api/integrations/oauth/callback?state=' + encodeURIComponent(state) + '&error=access_denied', page('u_t_1'));
+  // the sign-in comes back to the browser that started it, which holds its binding cookie
+  const bind = /og_oauth_bind=([^;]+)/.exec(r.headers.get('set-cookie'))[1];
+  const no = await go(h, '/api/integrations/oauth/callback?state=' + encodeURIComponent(state) + '&error=access_denied', { ...page('u_t_1'), Cookie: page('u_t_1').Cookie + '; og_oauth_bind=' + bind });
   assert.match(no.headers.get('location'), /error=denied$/);
   // someone else's state in my browser
   const r2 = await go(h, '/api/integrations/oauth/start?provider=strava', page('u_t_2'));

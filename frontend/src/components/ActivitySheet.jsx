@@ -7,6 +7,7 @@ import { NOTE_MAX } from '../lib/history.js'
 import { tappable, useSheetKeyboard } from '../lib/use-sheet-keyboard.js'
 import { SPORTS, SPORT_LABEL, SPORT_ICON, SPORT_PRESETS, ACTIVITY_MIN_MAX, activitiesOf, withActivity, activityName, withChoice, whoopForWorkout } from '../lib/activities.js'
 import DateField from './DateField.jsx'
+import { CHOICES } from '../../../api/coach/core/whoop-activities.js'
 import Icon from './Icon.jsx'
 import { Button, Stepper } from './ui.jsx'
 
@@ -106,7 +107,7 @@ function WhoopChoice({ a }) {
       {a.explicit ? '' : ' (your default)'}
     </div>
     <div className="chips" role="radiogroup" aria-label="WHOOP session" style={{ margin: '0 0 12px', flexWrap: 'wrap' }}>
-      {['keep', 'merge', 'skip'].map(k => <button key={k} type="button" role="radio" aria-checked={a.ov === k}
+      {CHOICES.map(k => <button key={k} type="button" role="radio" aria-checked={a.ov === k}
         className={'chip nocap' + (a.ov === k ? ' on' : '')} onClick={() => set(k)}>{CHOICE_LABEL[k]}</button>)}
       {a.explicit && <button type="button" className="chip nocap" onClick={() => set(null)}>Use default</button>}
     </div>

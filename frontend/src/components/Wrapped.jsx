@@ -113,7 +113,7 @@ export default function Wrapped() {
   const mRange = month ? monthRange(month, todayISO()) : null
   const food = useNutritionLink(mRange)
   const foodDays = mRange && food && food.show.story !== false ? daysIn(food, mRange.from, mRange.to) : null
-  const extras = useMemo(() => (month ? monthExtras(S, month, foodDays) : null), [month, S.activities, S.whoopActs, S.whoopChoice, S.whoopStrength, S.unit, food?.at, food?.show?.story]) // eslint-disable-line react-hooks/exhaustive-deps
+  const extras = useMemo(() => (month ? monthExtras(S, month, foodDays) : null), [month, S.activities, S.whoopActs, S.whoopChoice, S.whoopStrength, S.workouts, S.unit, food?.at, food?.show?.story]) // eslint-disable-line react-hooks/exhaustive-deps
   const cards = useMemo(() => (month ? monthCards(st, S, extras) : wrappedCards(st, S)), [st, lang, extras]) // eslint-disable-line react-hooks/exhaustive-deps
   const open = month || year
   const label = month ? monthLabel(month) : String(year)

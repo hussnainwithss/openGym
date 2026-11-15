@@ -95,9 +95,9 @@ export function whoopProvider({ env = process.env, fetchFn = globalThis.fetch, n
       catch { fail(502, 'network', 'Could not reach WHOOP.'); }
       const uid = p.data?.user_id;
       if (p.status !== 200 || !Number.isSafeInteger(uid) || uid <= 0) fail(502, 'profile', `WHOOP did not say whose account this is (${p.status}).`);
-      const who = [p.data.first_name, p.data.last_name].filter(v => typeof v === 'string').join(' ').trim() || 'WHOOP ' + uid;
+      // The account holder's name is never kept: WHOOP's user id identifies the account.
       return {
-        label: who.slice(0, 60),
+        label: 'WHOOP',
         events: [],
         info: { whoopUser: String(uid) },
         secrets: { access: tok.access, refresh: tok.refresh, expires: String(tok.expiresAt) },

@@ -8,7 +8,7 @@ import { useStore } from '../store/useStore.js'
 import { api } from '../lib/api.js'
 import { fmtDate, fmtNum, todayISO } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
-import { whoopDaysOf, trendOf, rangeOf, partValue } from '../lib/whoop-days.js'
+import { whoopDaysOf, trendOf, rangeOf, partValue, mapDay } from '../lib/whoop-days.js'
 import LineChart from '../components/LineChart.jsx'
 import Icon from '../components/Icon.jsx'
 import { Segmented } from '../components/ui.jsx'
@@ -34,7 +34,8 @@ export async function loadDays(S, today, n, get = p => api(p)) {
   }
   try {
     const parts = await Promise.all(chunks.map(([f, e]) => get(`/api/whoop/days?from=${f}&to=${e}`)))
-    return { days: parts.flatMap(p => p?.days || []).sort((a, b) => (a.d < b.d ? -1 : 1)), offline: false }
+    const days = parts.flatMap(p => (Array.isArray(p?.days) ? p.days : [])).map(x => mapDay(x?.d, x)).filter(Boolean)
+    return { days: days.sort((a, b) => (a.d < b.d ? -1 : 1)), offline: false }
   } catch {
     return { days: whoopDaysOf(S).filter(x => x.d >= from && x.d <= to), offline: true }
   }
@@ -54,13 +55,13 @@ export default function Whoop() {
   const days = state?.days || []
   const lines = useMemo(() => CHARTS.map(c => ({ ...c, points: trendOf(days, c.key) })).filter(c => c.points.length > 1), [days])
   const hm = m => `${Math.floor(m / 60)} h ${Math.round(m % 60)} min`
-  const dayLine = x => [
-    partValue(x, 'rec', 'rec') != null ? 'Recovery ' + (typeof partValue(x, 'rec', 'rec') === 'number' ? fmtNum(x.rec) + '%' : partValue(x, 'rec', 'rec')) : null,
+  const dayLine = x => { const rec = partValue(x, 'rec', 'rec'); return [
+    rec != null ? 'Recovery ' + (typeof rec === 'number' ? fmtNum(rec) + '%' : rec) : null,
     Number.isFinite(x.hrv) ? 'HRV ' + fmtNum(Math.round(x.hrv)) + ' ms' : null,
     Number.isFinite(x.rhr) ? 'RHR ' + fmtNum(x.rhr) : null,
     Number.isFinite(x.sleepMin) ? 'Sleep ' + hm(x.sleepMin) : null,
     Number.isFinite(x.strain) ? 'Strain ' + fmtNum(x.strain) : null,
-  ].filter(Boolean).join(' · ')
+  ].filter(Boolean).join(' · ') }
 
   return <div className="narrow" data-whoop-page>
     <div className="hdr">

@@ -19,6 +19,7 @@
  * KEY_CATEGORY below; a key no category names is a setting, readable by any token that reads
  * anything and writable by none, and the keys in NEVER are not handed to any token at all. */
 import crypto from 'node:crypto';
+import { SERVER_OWNED } from './sync-stamps.js';
 
 export const TOKEN_PREFIX = 'ogt_';
 export const TOKEN_LEVELS = ['off', 'view', 'apply'];
@@ -238,6 +239,11 @@ export function mergeScoped(cur, sent, scopes) {
   const touched = new Set();
   for (const [k, v] of Object.entries(sent)) {
     if (BOOK.has(k)) continue;
+    // WHOOP data (fork) only the server writes: sent back unchanged it is fine, changed it is refused.
+    if (SERVER_OWNED.includes(k)) {
+      if (same(base[k], v)) continue;
+      throw new ScopeError(403, 'scope', `this token may not change ${JSON.stringify(k).slice(0, 60)}`);
+    }
     if (writable(k, scopes)) {
       if (!same(base[k], v)) {
         if (v === undefined) delete next[k]; else next[k] = JSON.parse(JSON.stringify(v));
