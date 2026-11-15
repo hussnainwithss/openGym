@@ -90,10 +90,12 @@ export function createStore({ dir, key, now = Date.now }) {
     cache.set(uid, list);
     return list;
   }
+  // On disk first, then in the cache: a write that throws leaves the cache on what the disk holds
+  // (a refreshed WHOOP token must never be usable before it is saved).
   function save(uid, list) {
-    cache.set(uid, list);
-    if (!list.length) { try { fs.unlinkSync(fileOf(uid)); } catch { /* never written */ } return; }
+    if (!list.length) { try { fs.unlinkSync(fileOf(uid)); } catch { /* never written */ } cache.set(uid, list); return; }
     atomicWrite(fileOf(uid), JSON.stringify({ v: 1, connections: list }), 0o600);
+    cache.set(uid, list);
   }
   const aad = (uid, id, name) => `${safeUid(uid)}:${id}:${name}`;
 

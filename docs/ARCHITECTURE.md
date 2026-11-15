@@ -118,6 +118,7 @@ imported. When you change one side, change the other in the same pull request:
 |---|---|---|
 | `lib/sync-merge.js` | `api/sync-stamps.js` | `lib/sync-stamps-parity.test.js` runs both on the same cases |
 | `lib/glyphs.js` | `api/coach/core/glyphs.js` | `lib/coach-parity.test.js` |
+| `lib/weigh-ins.js` (a day's readings and value) | `api/integrations/whoop/weigh-ins.js` (fork: WHOOP weights) | `lib/weigh-ins-parity.test.js` runs both on the same days |
 | `lib/nudge.js` | `api/nudge.js` | mirrored cases in `lib/nudge.test.js` and `api/test/nudge.test.js` |
 | `lib/queue.js` | `api/queue.js` | mirrored cases in `lib/queue.test.js` and `api/test/queue.test.js` |
 

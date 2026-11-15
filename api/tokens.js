@@ -19,6 +19,7 @@
  * KEY_CATEGORY below; a key no category names is a setting, readable by any token that reads
  * anything and writable by none, and the keys in NEVER are not handed to any token at all. */
 import crypto from 'node:crypto';
+import { SERVER_OWNED } from './sync-stamps.js';
 
 export const TOKEN_PREFIX = 'ogt_';
 export const TOKEN_LEVELS = ['off', 'view', 'apply'];
@@ -49,6 +50,11 @@ export const KEY_CATEGORY = {
   measurements: ['measurements'], customMeasurements: ['measurements'], measurementEnabled: ['measurements'],
   dayNotes: ['notes'], exNotes: ['notes'], gymNotes: ['notes'], journalFolders: ['notes'],
   recoverySessions: ['workouts'], activities: ['workouts'],
+  // WHOOP (fork): what WHOOP changed on an imported activity; read with the activities, never written
+  // by a token (server.js commitState keeps the stored copy).
+  whoopActs: ['workouts'],
+  // The person's keep / merge / skip for a WHOOP strength session, and the default for new ones.
+  whoopChoice: ['workouts'], whoopStrength: ['workouts'],
   // Body facts the Tools page and the strength levels read (v1.4.5): personal, so not a setting
   // that rides along with a plans-only token.
   heightCm: ['bodyweight', 'measurements'], birthYear: ['bodyweight', 'measurements'], sex: ['bodyweight', 'measurements'],
@@ -56,7 +62,8 @@ export const KEY_CATEGORY = {
 // Never in a token's read, whatever it holds: pictures and videos (their own category, not
 // offered), the Coach's conversation, the live workout, linked services, and the server's notes.
 // Your own sounds (`sounds`, v1.4.5) are recordings of yours like the photos.
-const NEVER = new Set(['dayPhotos', 'exMedia', 'dayForm', 'avatar', 'sounds', 'active', 'coach', 'integrations', '_unstamped', '_prior', 'deleted', 'edited', 'undone']);
+// whoopSeen (fork): the server's own note of which WHOOP weights it put in, nobody else's business.
+const NEVER = new Set(['whoopSeen', 'whoopDays', 'dayPhotos', 'exMedia', 'dayForm', 'avatar', 'sounds', 'active', 'coach', 'integrations', '_unstamped', '_prior', 'deleted', 'edited', 'undone']);
 const NEVER_RE = /photo|avatar|video|secret|token|password|integration/i;
 // What the server keeps itself and the token reads along with the document, never writes.
 const BOOK = new Set(['_rev', '_wid', '_wids', '_ts']);
@@ -232,6 +239,11 @@ export function mergeScoped(cur, sent, scopes) {
   const touched = new Set();
   for (const [k, v] of Object.entries(sent)) {
     if (BOOK.has(k)) continue;
+    // WHOOP data (fork) only the server writes: sent back unchanged it is fine, changed it is refused.
+    if (SERVER_OWNED.includes(k)) {
+      if (same(base[k], v)) continue;
+      throw new ScopeError(403, 'scope', `this token may not change ${JSON.stringify(k).slice(0, 60)}`);
+    }
     if (writable(k, scopes)) {
       if (!same(base[k], v)) {
         if (v === undefined) delete next[k]; else next[k] = JSON.parse(JSON.stringify(v));

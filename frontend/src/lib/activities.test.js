@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  readActivity, activitiesOf, withActivity, activityTotals, activityStimuli, activityFromHealth, mergeHealthActivities,
+  readActivity, activitiesOf, withActivity, withChoice, activityTotals, activityStimuli, activityFromHealth, mergeHealthActivities,
   sportOfName, activitiesFromHealthExport, splitSportWorkouts, mergeImportedActivities, isOwnRecord, hkSportName, activityLine,
 } from './activities.js'
 import { streakInfo } from './streak.js'
@@ -146,3 +146,114 @@ describe('activities: imports', () => {
   })
 })
 
+
+describe('activities: WHOOP (fork)', () => {
+  it('a WHOOP entry keeps its source and its WHOOP fields; a broken field is dropped, not the entry', () => {
+    const e = { d: '2026-11-14', sport: 'run', min: 42, at: 1, durMs: 2520000, src: 'whoop', wu: '00000000-0000-4000-8000-000000000001', wa: '4242', strain: 11.2, hr: 140, hrMax: 172, kj: 1500, st: 1 }
+    expect(readActivity(e)).toEqual(e)
+    expect(readActivity({ ...e, hr: 'fast', wu: 'nope' })).toEqual((({ hr, wu, ...rest }) => rest)(e))
+    // another source does not pick up WHOOP fields
+    expect(readActivity({ ...e, src: 'hc' }).strain).toBeUndefined()
+  })
+})
+
+describe('activities: WHOOP updates never undo the person (fork, SC-17)', async () => {
+  const { mergeStates, takeServerOwned, stampReplace, SERVER_OWNED, STAMPED_MAPS } = await import('./sync-merge.js')
+  const api = await import('../../../api/sync-stamps.js')
+  const base = { d: '2026-11-14', sport: 'run', min: 30, src: 'whoop', wu: '00000000-0000-4000-8000-000000000001', wa: '4242', strain: 9, _ts: 100 }
+
+  it('deleted offline at T+1, WHOOP updated at T+2: it stays deleted', () => {
+    const phone = { activities: { w1: { _ts: 101 } } }
+    const server = { activities: { w1: base }, whoopActs: { w1: { ...base, strain: 14, _ts: 102 } } }
+    const merged = takeServerOwned(mergeStates(phone, server), server)
+    expect(activitiesOf(merged)).toEqual([])
+  })
+
+  it('a note added offline at T+1 keeps the session the person’s: WHOOP’s update at T+2 does not show over it', () => {
+    const phone = { activities: withActivity({ w1: base }, 'w1', { ...base, note: 'felt great' }, 101) }
+    const server = { activities: { w1: base }, whoopActs: { w1: { d: base.d, sport: 'run', min: 30, strain: 14, _ts: 102 } } }
+    const [a] = activitiesOf(takeServerOwned(mergeStates(phone, server), server))
+    expect(a.note).toBe('felt great')
+    expect(a.strain).toBe(9)
+  })
+
+  it('a new length replaces WHOOP’s exact one; a note leaves it', () => {
+    const exact = { ...base, durMs: 30 * 60000 + 20000 }
+    expect(withActivity({}, 'w1', { ...exact, note: 'x' }, 1).w1.durMs).toBe(exact.durMs)
+    expect(withActivity({}, 'w1', { ...exact, min: 20 }, 1).w1.durMs).toBe(20 * 60000)
+  })
+
+  it('the server’s copy of what it alone writes wins a merge whole, even against a newer stamp; a backup never restamps it', () => {
+    const phone = { whoopActs: { w1: { strain: 1, _ts: 900 } } }
+    const server = { whoopActs: { w1: { gone: 1, _ts: 100 } } }
+    expect(takeServerOwned(mergeStates(phone, server), server).whoopActs).toEqual(server.whoopActs)
+    const backup = { whoopActs: { w1: { strain: 1, _ts: 50 } } }
+    expect(stampReplace(backup, [server], 999).whoopActs.w1._ts).toBe(50)
+    // the two hand copies agree on what is the server's and what is stamped per entry
+    expect(api.SERVER_OWNED).toEqual(SERVER_OWNED)
+    expect(api.STAMPED_MAPS).toEqual(STAMPED_MAPS)
+  })
+})
+
+describe('activities: WHOOP strength sessions next to a logged workout (fork, D10/D21)', async () => {
+  const { choiceOf, overlapOf } = await import('../../../api/coach/core/whoop-activities.js')
+  const { mergeStates } = await import('./sync-merge.js')
+  const H = 3600000, T = Date.UTC(2026, 10, 14, 17)
+  const lift = { d: '2026-11-14', sport: 'other', title: 'Weightlifting', min: 60, at: T, durMs: H, src: 'whoop', wu: '00000000-0000-4000-8000-000000000002', st: 1, strain: 12 }
+  const gym = { id: 'g1', d: '2026-11-14', start: T + 5 * 60000, end: T + 70 * 60000, entries: [] }
+  const shown = S => activitiesOf(S).map(a => a.id)
+
+  it('no workout beside it: an activity, whatever the default says', () => {
+    expect(choiceOf({ whoopStrength: 'skip', workouts: [] }, 'w2', lift)).toEqual({ ov: 'keep', wid: null, explicit: false })
+  })
+  it('the default applies once a workout overlaps, even one logged after the import; the person’s own choice beats it', () => {
+    const S = { whoopStrength: 'merge', activities: { w2: { ...lift, _ts: 1 } }, workouts: [] }
+    expect(shown(S)).toEqual(['w2'])
+    S.workouts = [gym]
+    expect(shown(S)).toEqual([])
+    expect(choiceOf(S, 'w2', lift)).toEqual({ ov: 'merge', wid: 'g1', explicit: false })
+    S.whoopChoice = withChoice(S.whoopChoice, 'w2', 'keep', 5)
+    expect(shown(S)).toEqual(['w2'])
+  })
+  it('follows the workout it overlaps most, as times change; one without an id is linked by its day and start', () => {
+    const a = { id: 'a', d: lift.d, start: T + 50 * 60000, end: T + 90 * 60000 }
+    const b = { d: lift.d, start: T - 10 * 60000, end: T + 40 * 60000 }
+    expect(overlapOf([a, b], lift).key).toBe(`${lift.d}|${T - 10 * 60000}`)
+    a.start = T; a.end = T + H
+    expect(overlapOf([a, b], lift).key).toBe('a')
+  })
+  it('merge with its workout deleted shows it as an activity again, and the choice comes back with a workout', () => {
+    const S = { whoopChoice: { w2: { ov: 'merge', _ts: 3 } }, activities: { w2: { ...lift, _ts: 1 } }, workouts: [] }
+    expect(shown(S)).toEqual(['w2'])
+    S.workouts = [gym]
+    expect(shown(S)).toEqual([])
+  })
+  it('the exact length decides the overlap: 20 s ending before the workout is not on it; a shortened session leaves it', () => {
+    const blip = { ...lift, min: 1, durMs: 20000, at: gym.start - 50000 }
+    expect(overlapOf([gym], blip)).toBeNull()
+    const cut = withActivity({}, 'w2', { ...lift, min: 4 }, 2).w2   // 17:00-17:04, the workout starts 17:05
+    expect(overlapOf([gym], cut)).toBeNull()
+  })
+  it('the person’s choice and WHOOP’s update are separate maps: both survive a merge; Use default syncs too', () => {
+    const phone = { activities: { w2: { ...lift, _ts: 1 } }, whoopChoice: withChoice({}, 'w2', 'keep', 101) }
+    const server = { activities: { w2: { ...lift, _ts: 1 } }, whoopActs: { w2: { ...lift, strain: 15, _ts: 102 } } }
+    const m = mergeStates(phone, server)
+    expect(m.whoopChoice.w2.ov).toBe('keep')
+    expect(m.whoopActs.w2.strain).toBe(15)
+    const cleared = mergeStates({ whoopChoice: withChoice(m.whoopChoice, 'w2', null, 200) }, m)
+    expect(choiceOf({ ...cleared, whoopStrength: 'skip', workouts: [gym] }, 'w2', lift).ov).toBe('skip')
+  })
+})
+
+describe('WHOOP days in a merge (fork, whoop-vitals)', async () => {
+  const { mergeStates, takeServerOwned } = await import('./sync-merge.js')
+  it('a device copy never brings back a day the server cleared or aged out', () => {
+    const days = n => Object.fromEntries(Array.from({ length: n }, (_, i) => [`2026-0${1 + Math.floor(i / 28)}-${String(1 + (i % 28)).padStart(2, '0')}`, { rec: i, _ts: 1 }]))
+    const phone = { whoopDays: { ...days(121), '2026-05-01': { rec: 9, _ts: 900 } } }
+    const server = { whoopDays: { ...days(121), '2026-05-01': { cleared: 1, _ts: 100 } } }
+    // a merge of two copies keeps 120 dates at most
+    expect(Object.keys(mergeStates(phone, server).whoopDays).length).toBe(120)
+    // and the server's copy wins whole
+    expect(takeServerOwned(mergeStates(phone, server), server).whoopDays['2026-05-01']).toEqual({ cleared: 1, _ts: 100 })
+  })
+})

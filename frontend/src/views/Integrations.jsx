@@ -7,7 +7,7 @@ import { t } from '../lib/i18n.js'
 import { api, appBase } from '../lib/api.js'
 import { DEMO } from '../lib/demo.js'
 import { MOBILE } from '../lib/mobile.js'
-import { fmtAgo } from '../lib/format.js'
+import { fmtAgo, fmtDate } from '../lib/format.js'
 import { copyText } from '../lib/clipboard.js'
 import { platformNow } from '../lib/platform-now.js'
 import { coachAvailable } from '../lib/coach.js'
@@ -24,6 +24,9 @@ import { useWebdavConfig, webdavSheet } from '../components/WebDavBackup.jsx'
 import { calendarSheet } from '../components/CalendarFeed.jsx'
 import { useNutritionLink, nutritionSheet } from '../components/SisterApps.jsx'
 import { getCalendar } from '../lib/api-tokens.js'
+import { activitiesOf, activityName } from '../lib/activities.js'
+import { CHOICES } from '../../../api/coach/core/whoop-activities.js'
+import { activitySheet } from '../components/ActivitySheet.jsx'
 
 /* Settings → Integrations (v1.4.4): one directory of what openGym can talk to, grouped, each card
    with what it is, whether it is on, and the one thing to do next. The cards are thin on purpose:
@@ -140,12 +143,14 @@ export default function IntegrationsPage({ android = false, ios = false }) {
   const dir = directory(ctx)
 
   const webhookCtx = { server, lan: !!config?.integrations?.lan, toast }
-  // Back from Strava's sign-in (api/integrations/routes.js): ?intg=strava&connected=1 or &error=…
+  // Back from Strava's or WHOOP's sign-in (api/integrations/routes.js): ?intg=<id>&connected=1 or &error=…
   const loc = useLocation()
   useEffect(() => {
     const q = new URLSearchParams(loc.search)
-    if (q.get('intg') !== 'strava') return
-    toast(q.get('connected') ? t('Strava connected. Your next workout goes up by itself.') : t(STRAVA_ERRORS[q.get('error')] || 'Strava could not be connected. Try again.'))
+    const intg = q.get('intg')
+    if (intg === 'whoop') toast(q.get('connected') ? 'WHOOP connected. Your history is on its way, this can take a while.' : whoopMessage(WHOOP_ERRORS, q.get('error'), 'WHOOP could not be connected. Try again.'))
+    else if (intg === 'strava') toast(q.get('connected') ? t('Strava connected. Your next workout goes up by itself.') : t(STRAVA_ERRORS[q.get('error')] || 'Strava could not be connected. Try again.'))
+    else return
     server.load()
     nav(loc.pathname, { replace: true })
   }, [loc.search])
@@ -168,6 +173,11 @@ export default function IntegrationsPage({ android = false, ios = false }) {
         if (action === 'open') return infoSheet(card, t('Strava is off on this server. Register a Strava API app, then add strava to INTEGRATIONS and its STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET to the .env, and restart.'), INTEGRATIONS_DOCS + '#strava')
         if (action === 'connect') return startStrava(card)
         return stravaSheet((server.data?.connections || []).find(c => c.provider === 'strava'), webhookCtx)
+      case 'whoop':
+        if (status === 'server') return infoSheet(card, 'WHOOP data is pulled by your own openGym server, so it needs one. Connect this device to it in Account.')
+        if (action === 'open') return infoSheet(card, 'WHOOP is off on this server. Register a WHOOP developer app, then add whoop to INTEGRATIONS and its WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET to the .env, and restart.', INTEGRATIONS_DOCS + '#whoop')
+        if (action === 'connect') return startWhoop(card)
+        return whoopSheet((server.data?.connections || []).find(c => c.provider === 'whoop'), webhookCtx)
       case 'webdav': return webdavSheet()
       case 'calendar':
         if (status === 'server') return infoSheet(card, t('The calendar link is served by your own openGym server, so it needs one. Connect this device to it in Account.'))
@@ -186,7 +196,7 @@ export default function IntegrationsPage({ android = false, ios = false }) {
     // The health stores and the webhooks have more to say than a card holds.
     if (card.state.status === 'device' || card.state.status === 'server' || card.state.action === 'open' && card.id === 'webhook') return act(card)
     if (card.id === 'webhook') return card.state.action === 'connect' ? detailSheet(card, { act: () => act(card) }) : webhookListSheet(webhookCtx)
-    if (card.id === 'strava' && card.state.action === 'manage') return act(card)
+    if ((card.id === 'strava' || card.id === 'whoop') && card.state.action === 'manage') return act(card)
     if (card.id === 'webdav' && card.state.action === 'manage') return webdavSheet()
     if (card.id === 'calendar' && card.state.action === 'manage') return calendarSheet(setCalendarState)
     if (card.id === 'opennutrition' && card.state.action === 'manage') return nutritionSheet()
@@ -555,6 +565,101 @@ function StravaDetail({ close, conn: initial, server, toast }) {
     </div>
     <DangerRow label={t('Disconnect')} disabled={busy} onClick={disconnect} />
   </>
+}
+
+/* ---------------- WHOOP (fork) ---------------- */
+
+export const WHOOP_ERRORS = {
+  denied: 'WHOOP was not given access. Nothing was connected.',
+  state: 'That sign-in took too long or came from somewhere else. Start again from here.',
+  signin: 'Sign in to your server first, then connect WHOOP.',
+  off: 'WHOOP is off on this server.',
+  profile: 'WHOOP did not say whose account this is. Try again.',
+}
+
+// What WHOOP's sync and check say, by their code (api/integrations/whoop/client.js, sync.js), so
+// no server or network text reaches the screen.
+export const WHOOP_SYNC = {
+  reconnect: 'WHOOP no longer accepts this sign-in. Reconnect it.',
+  lost: 'A sign-in refresh went missing on the way. Reconnect WHOOP.',
+  rate: 'WHOOP asked to slow down. Trying again shortly.',
+  network: 'Could not reach WHOOP. Trying again shortly.',
+  http: 'WHOOP had a problem answering. Trying again shortly.',
+  gone: 'Disconnected.',
+}
+/** The fixed message for `code` in `map`, or `fallback`: a code from a URL or a reply is only a key. */
+export const whoopMessage = (map, code, fallback) => (typeof code === 'string' && Object.hasOwn(map, code) ? map[code] : fallback)
+
+// Like Strava: a trip to WHOOP and back to this server's address, from a browser with its session.
+function startWhoop(card) {
+  if (MOBILE) return infoSheet(card, 'Connect WHOOP once from openGym in a browser, signed in to your server. Your server then pulls your WHOOP data, and every device gets it.', INTEGRATIONS_DOCS + '#whoop')
+  window.location.assign(appBase().replace(/\/$/, '') + '/api/integrations/oauth/start?provider=whoop')
+}
+
+function whoopSheet(conn, ctx) {
+  if (!conn) return
+  sheet(close => <WhoopDetail close={close} conn={conn} {...ctx} />)
+}
+
+function WhoopDetail({ close, conn: initial, server, toast }) {
+  const [c, setC] = useState(initial)
+  const [busy, setBusy] = useState(false)
+  const call = async (path, body, after) => {
+    setBusy(true)
+    try {
+      const r = await api(path, { method: 'POST', body: JSON.stringify({ id: c.id, ...body }) })
+      if (r?.connection) setC(r.connection)
+      after?.(r)
+      server.load()
+    } catch { toast?.('Something went wrong. Try again.') }
+    setBusy(false)
+  }
+  const trouble = c.status === 'attention'
+  const disconnect = () => confirmSheet({
+    title: 'Disconnect WHOOP?',
+    message: 'Your server forgets the sign-in and stops pulling. Everything already imported stays in openGym.',
+    confirmText: t('Disconnect'), danger: true,
+    onConfirm: () => call('/api/integrations/disconnect', {}, () => { close(); toast?.('WHOOP disconnected') }),
+  })
+  return <>
+    <SheetHead icon="heart" title="WHOOP" status={statusOf(c)} />
+    <p className="intg-lead" translate="no">{c.label}</p>
+    <Section footer="Your server asks WHOOP for new data every 15 minutes, and at once when WHOOP tells it something changed.">
+      <Row icon="play" iconTint="var(--green)" title="Pulling" subtitle={c.paused ? 'Paused. Nothing is pulled until you switch it back on.' : null}>
+        <Switch aria-label="Pulling" checked={!c.paused} disabled={busy} onChange={v => call('/api/integrations/update', { paused: !v })} />
+      </Row>
+      {c.info?.backfill && c.info.backfill !== 'done' && <Row icon="download" iconTint="var(--blue)" title="Bringing in your history" value={c.info.backfill} />}
+      <Row icon="clock" iconTint="var(--blue)" title="Last sync" value={c.lastOk ? fmtAgo(c.lastOk) : t('Not yet')} />
+      <Row icon="chart" iconTint="var(--teal)" title="History and trends" accessory="chevron" onClick={() => { close(); window.location.hash = '#/whoop' }} />
+      {c.lastError && <Row icon="warning" iconTint={trouble ? 'var(--orange)' : 'var(--grey)'} title={<span className="intg-line">{whoopMessage(WHOOP_SYNC, c.lastError.code, 'Something went wrong with WHOOP.')}</span>}
+        subtitle={c.lastError.at ? fmtAgo(c.lastError.at) : null} />}
+    </Section>
+    <WhoopStrengthSettings close={close} />
+    <div className="sect-b intg-acts">
+      <ActRow icon="bolt" label={t('Check the connection')} disabled={busy} onClick={() => call('/api/integrations/test', {}, r => toast?.(r?.ok ? 'WHOOP answers' : whoopMessage(WHOOP_SYNC, r?.code, 'The check did not go through.')))} />
+      {trouble && <ActRow icon="reset" label={t('Reconnect')} disabled={busy} onClick={() => startWhoop({ icon: 'heart', name: 'WHOOP', state: {} })} />}
+    </div>
+    <DangerRow label={t('Disconnect')} disabled={busy} onClick={disconnect} />
+  </>
+}
+
+// WHOOP strength sessions that overlap a workout logged here (D10, D21): the default for new ones,
+// and every session merged or skipped, to open and change one by one.
+const STRENGTH_LABEL = { keep: 'Keep as activities', merge: 'Merge into the workout', skip: 'Skip them' }
+function WhoopStrengthSettings({ close }) {
+  const S = useStore(s => s.S)
+  const update = useStore(s => s.update)
+  const cur = CHOICES.includes(S.whoopStrength) ? S.whoopStrength : 'keep'
+  const hidden = activitiesOf(S, { all: true }).filter(a => a.ov && a.ov !== 'keep')
+  return <Section footer="When a WHOOP strength session overlaps a workout you logged in openGym. You can change each one on its own.">
+    <Row icon="dumbbell" iconTint="var(--orange)" title="WHOOP strength sessions">
+      <select className="input" aria-label="WHOOP strength sessions" value={cur} onChange={e => update(s => { s.whoopStrength = e.target.value })}>
+        {CHOICES.map(v => <option key={v} value={v}>{STRENGTH_LABEL[v]}</option>)}
+      </select>
+    </Row>
+    {hidden.map(a => <Row key={a.id} icon="heart" iconTint="var(--teal)" title={activityName(a, t)}
+      subtitle={fmtDate(a.d, true) + ' · ' + (a.ov === 'merge' ? 'Merged' : 'Skipped')} onClick={() => { close(); activitySheet({ id: a.id }) }} />)}
+  </Section>
 }
 
 function eventName(ev) {

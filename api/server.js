@@ -37,7 +37,7 @@ import {
 import { startAdminSocket } from './admin-socket.js';
 import { createMediaStore, mediaLimits, mediaConfig, MediaError, HASH_RE } from './media.js';
 import { effectiveRoutineId } from './queue.js';
-import { stampPut, highestStamp } from './sync-stamps.js';
+import { stampPut, highestStamp, SERVER_OWNED } from './sync-stamps.js';
 import { atomicWrite as durableWrite } from './durable.js';
 import { ipv6Groups, guardedLookup, pushEndpointError, MAX_PUSH_ENDPOINT, outboundLookup } from './net-guard.js';
 import { createIntegrations } from './integrations/index.js';
@@ -546,6 +546,24 @@ function commitState(uid, cur, state, { overRead = false, stamped = false } = {}
   // undone by the next device that merges (sync-stamps.js).
   // A document nested too deep to compare is the bad request the stringify below refuses too.
   const report = {};
+  // What only the server writes (WHOOP data) is never a device's to set: the stored copy goes back,
+  // and a document that differed goes in one revision further so its device reads it again.
+  for (const k of SERVER_OWNED) {
+    const want = cur ? cur[k] : undefined;
+    if (JSON.stringify(state[k]) === JSON.stringify(want)) continue;
+    if (want === undefined) delete state[k]; else state[k] = JSON.parse(JSON.stringify(want));
+    report.changed = true;
+  }
+  // The person's WHOOP choices (fork) per entry, the later stamp winning: an app that does not know
+  // this map (the published one) sends it whole, possibly without an entry another device added.
+  if (cur?.whoopChoice && typeof cur.whoopChoice === 'object') {
+    const sent = state.whoopChoice && typeof state.whoopChoice === 'object' && !Array.isArray(state.whoopChoice) ? state.whoopChoice : {};
+    const merged = { ...sent };
+    for (const [id, e] of Object.entries(cur.whoopChoice)) {
+      if (!merged[id] || (Number(e?._ts) || 0) > (Number(merged[id]?._ts) || 0)) merged[id] = e;
+    }
+    if (JSON.stringify(merged) !== JSON.stringify(state.whoopChoice)) { state.whoopChoice = merged; report.changed = true; }
+  }
   try { stampPut(cur, state, { overRead, stamped, report }); }
   catch (e) { if (e instanceof RangeError) return { status: 400, body: { error: 'invalid state' } }; throw e; }
   state._rev = curRev + 1;          // server-owned; whatever the client sent is ignored
@@ -854,7 +872,7 @@ const clearCookie = COOKIE === LEGACY_COOKIE
 // Authorization header is the only credential the route reads, and no browser attaches one.
 // The connector's OAuth registration and token exchange (oauth.js) are called by the assistant's
 // own server: the code and verifier in the body are the credential, and no cookie is read.
-const CSRF_EXEMPT = new Set(['POST /api/oauth/register', 'POST /api/oauth/token', 'POST /api/oauth/revoke', 'POST /api/pair/redeem', 'POST /api/watch/redeem', 'POST /api/watch/box', 'POST /api/oidc/app/redeem', 'PUT /api/token/data']);
+const CSRF_EXEMPT = new Set(['POST /api/oauth/register', 'POST /api/oauth/token', 'POST /api/oauth/revoke', 'POST /api/pair/redeem', 'POST /api/watch/redeem', 'POST /api/watch/box', 'POST /api/oidc/app/redeem', 'PUT /api/token/data', 'POST /api/integrations/whoop/webhook']);
 // The routes that answer to the credential in the body and never to a Bearer. No Bearer is the
 // credential that acts there, so none buys the shortcut below: any valid token would do, the
 // attacker's own included.
@@ -1028,6 +1046,21 @@ function readBody(req) {
     // A browser hanging up mid-body — which is what pagehide does to an in-flight sync — is not
     // the caller getting a request wrong, it is nobody being left to answer. Marked so the
     // catch-all at the bottom says one line instead of a stack trace and a 500 into a dead socket.
+    req.on('error', e => reject(Object.assign(e, { clientGone: true })));
+  });
+}
+// The raw bytes of a small body, unparsed: for a sender that signs them (WHOOP's webhook), where
+// the signature has to be checked on exactly what arrived. Same cap handling as readBody.
+function readRaw(req, max) {
+  return new Promise((resolve, reject) => {
+    let size = 0, over = false; const chunks = [];
+    req.on('data', d => {
+      size += d.length;
+      if (over) { if (size > 2 * max) req.destroy(); return; }
+      if (size > max) { over = true; chunks.length = 0; reject(new HttpError(413, 'body too large')); return; }
+      chunks.push(d);
+    });
+    req.on('end', () => { if (!over) resolve(Buffer.concat(chunks)); });
     req.on('error', e => reject(Object.assign(e, { clientGone: true })));
   });
 }
@@ -3608,7 +3641,7 @@ const routes = {
   /* ---------- integrations ---------- */
   // integrations/routes.js, handed the same helpers. With INTEGRATIONS unset they answer an empty
   // list (GET) or 404 "off", so the routes exist on every server and the app can tell.
-  ...integrationRoutes({ json, readBody, readSession, hub: integrations, audit, origin: ORIGIN }),
+  ...integrationRoutes({ json, readBody, readRaw, readSession, hub: integrations, audit, origin: ORIGIN }),
 
   /* ---------- trainers, gym leads, studios ---------- */
   // trainers/routes.js. Every decision about another profile is permissions.js; with TRAINERS
@@ -3646,6 +3679,8 @@ coachJobs.setProposalHook((uid, pending) => {
     tag: 'coach-proposal', url: '#/coach'
   });
 });
+// WHOOP pulls into profiles through the same writer trainers use (writeStateAs).
+integrations.attach({ users: () => db.users.filter(u => !u.disabled), readState: readStateCached, writeState: writeStateAs });
 integrations.start();
 startCadence({ users: () => db.users.filter(u => !u.disabled), userNow, skip: uid => !stateSummary(uid)?.consent });
 startWarmup();

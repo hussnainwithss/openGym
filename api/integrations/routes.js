@@ -4,12 +4,18 @@
  * looked up in the caller's own file, so another profile's id is simply "no such connection".
  * Documented in api/openapi.yaml (tag Integrations). */
 
-export function integrationRoutes({ json, readBody, readSession, hub, audit = () => {}, origin = 'http://localhost:8080' }) {
+export function integrationRoutes({ json, readBody, readRaw = null, readSession, hub, audit = () => {}, origin = 'http://localhost:8080' }) {
   // OAuth (Strava): the browser goes to the provider and comes back here; both answers are
   // redirects, the second back to Settings → Integrations with how it went in the query.
   const base = String(origin).replace(/\/$/, '');
   const callbackUrl = base + '/api/integrations/oauth/callback';
-  const back = (res, q) => { res.writeHead(302, { Location: base + '/settings/integrations?' + new URLSearchParams(q).toString(), 'Cache-Control': 'no-store' }); res.end(); };
+  // The app routes by hash (App.jsx HashRouter), so the query has to sit after the '#'.
+  // The browser binding of a sign-in (hub.oauthStartBound): a cookie only the callback path sees.
+  // Lax, so it comes back on the provider's top-level redirect even when sessions are Strict.
+  const BIND = 'og_oauth_bind';
+  const bindCookie = (v, age) => `${BIND}=${v}; Path=/api/integrations/oauth; Max-Age=${age}; HttpOnly; SameSite=Lax${base.startsWith('https:') ? '; Secure' : ''}`;
+  const bindOf = req => { const m = new RegExp('(?:^|;\\s*)' + BIND + '=([A-Za-z0-9_-]{1,64})').exec(req.headers.cookie || ''); return m ? m[1] : null; };
+  const back = (res, q) => { res.writeHead(302, { Location: base + '/#/settings/integrations?' + new URLSearchParams(q).toString(), 'Cache-Control': 'no-store', 'Set-Cookie': bindCookie('', 0) }); res.end(); };
   // A refusal the hub throws ({ status, code, message }) is the caller's to read, never a 500.
   const guard = fn => async (req, res) => {
     const user = readSession(req);
@@ -63,8 +69,8 @@ export function integrationRoutes({ json, readBody, readSession, hub, audit = ()
       const provider = (new URL(req.url, 'http://x').searchParams.get('provider') || '').slice(0, 40);
       if (!user) return back(res, { intg: provider, error: 'signin' });
       try {
-        const to = hub.oauthStart(user.id, provider, callbackUrl);
-        res.writeHead(302, { Location: to, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+        const { url: to, bind } = hub.oauthStartBound(user.id, provider, callbackUrl);
+        res.writeHead(302, { Location: to, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'Set-Cookie': bindCookie(bind, 600) });
         res.end();
       } catch (e) {
         if (!e?.status) throw e;
@@ -78,14 +84,31 @@ export function integrationRoutes({ json, readBody, readSession, hub, audit = ()
       const q = Object.fromEntries(new URL(req.url, 'http://x').searchParams);
       const user = readSession(req);
       try {
-        const out = await hub.oauthFinish(q, user?.id || null);
+        const out = await hub.oauthFinish(q, user?.id || null, bindOf(req));
         audit(req, 'integration.connect', { user: user || { id: out.uid }, msg: `${out.connection.provider}: ${out.connection.label}` });
         back(res, { intg: out.connection.provider, connected: '1' });
       } catch (e) {
         if (!e?.status) throw e;
-        back(res, { intg: 'strava', error: e.code || 'error' });
+        // Only WHOOP uses an 8-character state; a state we never issued names no provider.
+        back(res, { intg: e.provider || (String(q.state || '').length === 8 ? 'whoop' : 'strava'), error: e.code || 'error' });
       }
     },
+
+    // WHOOP's webhook: no session, the signature over the raw body is the credential. The answer
+    // says nothing about why a delivery was refused.
+    'POST /api/integrations/whoop/webhook': async (req, res) => {
+      if (!hub.whoopWebhook || !readRaw) return json(res, 404, { error: 'not found' });
+      const raw = await readRaw(req, 8192);
+      const out = hub.whoopWebhook(raw, req.headers);
+      if (out.ok) { res.writeHead(204); return res.end(); }
+      json(res, out.status || 401, { error: 'refused' });
+    },
+
+    // WHOOP history beyond the 120 days every device has (fork, whoop-vitals): the WHOOP page.
+    'GET /api/whoop/days': guard(async (req, res, user) => {
+      const q = new URL(req.url, 'http://x').searchParams;
+      json(res, 200, hub.whoopDays(user.id, (q.get('from') || '').slice(0, 10), (q.get('to') || '').slice(0, 10)));
+    }),
 
     'GET /api/integrations/log': guard(async (req, res, user) => {
       const id = new URL(req.url, 'http://x').searchParams.get('id');

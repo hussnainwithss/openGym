@@ -21,7 +21,7 @@ vi.mock('../store/useStore.js', async importOriginal => {
   useStore.getState = () => ({ S: mocks.S, update: () => {} })
   return { ...actual, useStore }
 })
-vi.mock('react-router-dom', () => ({ useNavigate: () => mocks.nav }))
+vi.mock('react-router-dom', () => ({ useNavigate: () => mocks.nav, Link: ({ to, children }) => React.createElement('a', { 'data-to': to }, children) }))
 vi.mock('../sheets.jsx', () => ({
   bwSheet: vi.fn(), goalSheet: vi.fn(), calendarSheet: vi.fn(), workoutDetailSheet: vi.fn(), dayOverrideSheet: vi.fn(),
   exerciseHistorySheet: (...a) => mocks.history(...a), weighInsSheet: vi.fn(), bwDeltaColor: () => '',
@@ -291,5 +291,18 @@ describe('Stats: no control inside a control', () => {
     const nested = [...host.querySelectorAll(sel)].filter(el => el.parentElement?.closest(sel)).map(el => el.outerHTML.slice(0, 80))
     expect(host.querySelectorAll(sel).length).toBeGreaterThan(20)
     expect(nested).toEqual([])
+  })
+})
+
+describe('Stats: WHOOP today with the Health module off (fork)', () => {
+  const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })()
+  const day = { rec: 66, hrv: 61.5, rhr: 52, sleepMin: 425, strain: 12.4, st: { sleep: 'scored', rec: 'scored', cycle: 'scored' }, _ts: 1 }
+  it('Integrations on: the Daily form card shows WHOOP’s day; off: no card at all', () => {
+    mount(small({ modules: { health: false, integrations: true }, whoopDays: { [today]: day } }))
+    expect(card('[data-whoop-today]')).toBeTruthy()
+    act(() => root.unmount())
+    host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host)
+    mount(small({ modules: { health: false, integrations: false }, whoopDays: { [today]: day } }))
+    expect(card('[data-daily-form]')).toBeNull()
   })
 })

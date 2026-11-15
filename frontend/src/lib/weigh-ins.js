@@ -102,9 +102,18 @@ export function readingsOf(e) {
 /** How many readings a day holds. */
 export const readingCount = e => readingsOf(e).length
 
+/** The readings a day's value is read from: on a day with a WHOOP reading (fork), one typed in
+ *  (no `src`) wins over every read-in one; any other day, all of them. The server's copy is
+ *  api/integrations/whoop/weigh-ins.js `eligible`. */
+export function eligibleReadings(readings) {
+  const rs = list(readings).filter(r => Number(r?.w) > 0)
+  if (rs.some(r => r.src === 'whoop') && rs.some(r => !r.src)) return rs.filter(r => !r.src)
+  return rs
+}
+
 /** The one value of a day from its readings: the first, the average or the last. */
 export function dailyValue(readings, mode = 'first') {
-  const rs = list(readings).filter(r => Number(r?.w) > 0)
+  const rs = eligibleReadings(readings)
   if (!rs.length) return null
   if (mode === 'last') return Number(rs[rs.length - 1].w)
   if (mode === 'avg') return round2(rs.reduce((s, r) => s + Number(r.w), 0) / rs.length)
@@ -130,7 +139,8 @@ export function absorbLegacyEdit(e, mode = 'first') {
   if (t === st || !(Number(e.w) > 0)) return e
   const rs = readingsOf(e)
   if (!rs.length || Number(e.w) === dailyValue(rs, mode)) return e
-  const pick = mode === 'last' ? rs[rs.length - 1] : rs[0]
+  const from = eligibleReadings(rs)
+  const pick = mode === 'last' ? from[from.length - 1] : from[0]
   const r = e.ins.find(x => String(x?.id) === pick.id)
   if (!r) return e
   r.w = round1(e.w)

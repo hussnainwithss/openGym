@@ -3460,7 +3460,7 @@ paths:
         - name: provider
           in: query
           required: true
-          schema: { type: string, enum: [strava] }
+          schema: { type: string, enum: [strava, whoop] }
       responses:
         '302': { description: To the service, or back to the app with `intg` and `error`. }
   /api/integrations/oauth/callback:
@@ -3476,6 +3476,54 @@ paths:
         - { name: error, in: query, schema: { type: string } }
       responses:
         '302': { description: Back to the app. }
+  /api/whoop/days:
+    get:
+      tags: [integrations]
+      operationId: whoopDays
+      summary: WHOOP days from the server's WHOOP history (fork)
+      description: One entry per local wake date with sleep, recovery (HRV, resting heart rate, SpO2, skin temperature) and strain, each part with its own score state. The profile itself carries the newest 120 dates (`whoopDays`); this reads further back, at most 400 days per request. Still answers after WHOOP is disconnected, from what was imported.
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: The days, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days: { type: array, items: { type: object } }
+                  whoopUser: { type: string, nullable: true }
+        '400': { description: A bad or too long range. }
+        '401': { description: Not signed in. }
+        '503': { description: The WHOOP history cannot be read right now. }
+  /api/integrations/whoop/webhook:
+    post:
+      tags: [integrations]
+      operationId: integrationsWhoopWebhook
+      summary: WHOOP tells the server a record changed (fork)
+      description: Called by WHOOP, not by the app, so it takes no session. The body is checked against `X-WHOOP-Signature` (base64 HMAC-SHA256 with the WHOOP app's client secret over `X-WHOOP-Signature-Timestamp` followed by the raw body) and the timestamp must be within five minutes. A valid event only names a record the server then fetches from WHOOP again; a repeated `trace_id` is ignored. 404 when WHOOP is not switched on.
+      security: []
+      parameters:
+        - { name: X-WHOOP-Signature, in: header, required: true, schema: { type: string } }
+        - { name: X-WHOOP-Signature-Timestamp, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id: { type: integer }
+                id: { type: string, format: uuid }
+                type: { type: string, enum: [workout.updated, workout.deleted, sleep.updated, sleep.deleted, recovery.updated, recovery.deleted] }
+                trace_id: { type: string }
+      responses:
+        '204': { description: Taken. }
+        '401': { description: Bad or stale signature. }
+        '404': { description: WHOOP is off on this server. }
+        '413': { description: Body over 8 KB. }
   /api/integrations/log:
     get:
       tags: [integrations]

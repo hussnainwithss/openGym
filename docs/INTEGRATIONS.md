@@ -235,6 +235,47 @@ on the app page). For a family server, ask Strava to raise it. openGym asks for 
 `activity:write` scope only, never reads activities, and has no webhook subscription (an app gets
 one, and yours may already use it).
 
+## WHOOP
+
+(This fork.) Your server pulls your WHOOP data: workouts become activities, a change of the weight
+in your WHOOP profile becomes a weigh-in, and recovery, HRV, resting heart rate, SpO2, skin
+temperature, sleep and strain show day by day. Read only: nothing is sent to WHOOP.
+
+- Settings → Integrations → WHOOP → **Connect**, in a browser signed in to your server. The first
+  sync brings in your whole WHOOP history; after that the server asks every 15 minutes.
+- **Workouts.** Every WHOOP workout is an activity, with its strain, heart rate and energy. A WHOOP
+  strength session that overlaps a workout you logged in openGym follows the default in the WHOOP
+  sheet (keep it as an activity, merge it into the workout, or skip it), and you can change each one
+  from its activity sheet. Your own edits and deletions always win over what WHOOP changes later.
+- **Weight.** WHOOP keeps one weight with no date, so openGym logs it when it changes, dated then.
+  A weigh-in you type on the same day wins that day's value.
+- **Days.** Today's numbers are in Stats → Daily form, apart from the phone's own vitals. The WHOOP
+  page (from the WHOOP sheet, or the Daily form's link) has the history and trends. The last 120
+  days are on every device, offline too; older ones come from your server.
+- **Disconnect** forgets the sign-in on your server and keeps everything imported.
+- Healthspan / WHOOP Age is not in WHOOP's public API, so it cannot come in.
+
+### Turning WHOOP on (self-hosters)
+
+1. On https://developer.whoop.com create an app with every read scope (recovery, cycles, workout,
+   sleep, profile, body measurement). Its **Redirect URL** is `ORIGIN` + `/api/integrations/oauth/callback`.
+2. Put its Client ID and Client Secret in `.env` and add `whoop` to `INTEGRATIONS`:
+
+   ```
+   INTEGRATIONS=whoop
+   WHOOP_CLIENT_ID=
+   WHOOP_CLIENT_SECRET=
+   ```
+3. Restart the api container.
+
+Optional, for changes within seconds instead of 15 minutes: set the app's **Webhook URL** to
+`ORIGIN` + `/api/integrations/whoop/webhook`. WHOOP only calls public HTTPS addresses, so a server
+reachable only on your home network keeps polling. Edits to an older WHOOP workout, sleep or
+recovery arrive only by webhook; edits to cycles and weight come with the 15-minute poll.
+
+The server keeps each person's WHOOP history in `DATA_DIR/whoop/` (back it up with the rest of
+`data/`); deleting the account deletes it.
+
 ## For self-hosters
 
 Integrations are **off by default**. With nothing set, the server answers exactly as before, the
@@ -245,7 +286,7 @@ written to disk. Switch providers on in `.env`:
 INTEGRATIONS=webhook
 ```
 
-Comma-separated: `webhook`, `strava` (see Strava above). Restart the api
+Comma-separated: `webhook`, `strava`, `whoop` (see Strava and WHOOP above). Restart the api
 container after changing it.
 
 ### Webhooks to your home network (`INTEGRATIONS_ALLOW_LAN`)

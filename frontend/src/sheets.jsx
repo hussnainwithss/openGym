@@ -130,7 +130,7 @@ import { gymNoteText, withGymNote } from './lib/journal.js'
 import { recoveryDays, recoveryOn } from './lib/recovery-sessions.js'
 import { recoverySheet, RecoveryRow } from './components/RecoverySheet.jsx'
 import { activityDays, activitiesOn } from './lib/activities.js'
-import { activitySheet, ActivityRow } from './components/ActivitySheet.jsx'
+import { activitySheet, ActivityRow, WhoopOnWorkout } from './components/ActivitySheet.jsx'
 import { StreakSummary, StreakLegend, WeekMark, WeekNote } from './components/StreakCalendar.jsx'
 import { copyText } from './lib/clipboard.js'
 import { queueRemaining, pinState } from './lib/queue.js'
@@ -3803,6 +3803,8 @@ function WorkoutDetail({ w, close }) {
     <AutoEndedNote w={w} close={close} />
     {/* Circuits, AMRAPs, EMOMs and intervals: the score and the round times (lib/circuit.js). */}
     <CircuitResults w={w} />
+    {/* A WHOOP strength session merged into this workout (fork): WHOOP's numbers for it. */}
+    <WhoopOnWorkout w={w} />
     {grouped ? groups.map(g => {
       const r = g.rid ? st.routines.find(x => x.id === g.rid) : null
       const items = g.items.map(i => w.entries[i])
@@ -3879,11 +3881,11 @@ function Calendar({ start, close, help = false }) {
   // The streak's week by week (components/StreakCalendar.jsx), with Motivation on and a workout
   // to count: a mark at the end of each row, the frozen weeks washed, one tapped week explained.
   const streakOn = isOn(st, 'motivation') && st.workouts.length > 0
-  const weeks = useMemo(() => (streakOn ? streakWeeks(st) : null), [streakOn, st.workouts, st.weekStart, st.streakRule, st.recoverySessions, st.recoveryStreak, st.activities, st.activityStreak]) // eslint-disable-line react-hooks/exhaustive-deps
+  const weeks = useMemo(() => (streakOn ? streakWeeks(st) : null), [streakOn, st.workouts, st.weekStart, st.streakRule, st.recoverySessions, st.recoveryStreak, st.activities, st.activityStreak, st.whoopActs, st.whoopChoice, st.whoopStrength]) // eslint-disable-line react-hooks/exhaustive-deps
   // Days with a sauna, an ice bath, a massage (lib/recovery-sessions.js): a teal dot of their own.
   const recDays = useMemo(() => recoveryDays(st), [st.recoverySessions]) // eslint-disable-line react-hooks/exhaustive-deps
   // Days with a run or a match (lib/activities.js): a blue dot of their own.
-  const actDays = useMemo(() => activityDays(st), [st.activities]) // eslint-disable-line react-hooks/exhaustive-deps
+  const actDays = useMemo(() => activityDays(st), [st.activities, st.whoopActs, st.whoopChoice, st.whoopStrength, st.workouts]) // eslint-disable-line react-hooks/exhaustive-deps
   const [selWk, setSelWkRaw] = useState(null)
   // A tapped missed planned day (its line in WeekNote); a week and a day are never both picked.
   const [selDay, setSelDay] = useState(null)

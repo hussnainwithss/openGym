@@ -15,6 +15,8 @@
  * Past the cap the week falls back to the freezes. A note says the week was out of your hands,
  * so it is read for every week, including the ones before this version. */
 
+import { effectiveActivity, hiddenBy } from './whoop-activities.js';
+
 export const FREEZE_EVERY = 4;
 export const FREEZE_MAX = 2;
 export const STREAK_BADGES = [4, 12, 26, 52, 104];
@@ -115,8 +117,11 @@ export function streakWalk(S, today, { log = null, weekKey = weekKeyOf } = {}) {
   // Activities (frontend/src/lib/activities.js: a run, a football match, read from the health store
   // or an import) count the same way, only when the profile opted in (S.activityStreak).
   if (S?.activityStreak === true && S.activities && typeof S.activities === 'object') {
-    for (const a of Object.values(S.activities)) {
-      if (!a || !isISO(a.d) || !(Number(a.min) >= 1)) continue;
+    for (const [id, raw] of Object.entries(S.activities)) {
+      // A WHOOP session reads as WHOOP last left it (whoop-activities.js): deleted there, it is out.
+      // Merged into a logged workout or skipped, it is not a session of its own.
+      const a = effectiveActivity(S, id, raw);
+      if (!a || !isISO(a.d) || !(Number(a.min) >= 1) || hiddenBy(S, id, a)) continue;
       const k = weekKey(a.d, ws);
       if (k <= cur) trained.add(k);
     }

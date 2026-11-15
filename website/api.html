@@ -328,7 +328,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <p class="api-facts">
     <span>OpenAPI 3.1.0</span>
     <span>openGym v1.4.5</span>
-    <span>177 endpoints</span>
+    <span>179 endpoints</span>
     <span>AGPL-3.0-or-later</span>
   </p>
 
@@ -3586,7 +3586,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
 <p class="ep-h">Query parameters</p><div class="ptab">
   <div class="prow">
     <span class="p-name">provider<em class="p-req" title="required">required</em></span>
-    <span class="p-type">&quot;strava&quot;</span>
+    <span class="p-type">&quot;strava&quot; | &quot;whoop&quot;</span>
     <span class="p-desc"></span>
   </div>
 </div>
@@ -3639,6 +3639,117 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s3">302</span>
     <span class="p-desc">Back to the app.</span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-whoopDays">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/whoop/days</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">WHOOP days from the server's WHOOP history (fork)</span>
+  </summary>
+  <div class="ep-body">
+<p>One entry per local wake date with sleep, recovery (HRV, resting heart rate, SpO2, skin temperature) and strain, each part with its own score state. The profile itself carries the newest 120 dates (<code>whoopDays</code>); this reads further back, at most 400 days per request. Still answers after WHOOP is disconnected, from what was imported.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">from<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">to<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">The days, oldest first.<span class="r-sig">{ days: object[], whoopUser: string }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">A bad or too long range.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">Not signed in.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">The WHOOP history cannot be read right now.</span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-integrationsWhoopWebhook">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/integrations/whoop/webhook</code><span class="ep-chip public">public</span></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">WHOOP tells the server a record changed (fork)</span>
+  </summary>
+  <div class="ep-body">
+<p>Called by WHOOP, not by the app, so it takes no session. The body is checked against <code>X-WHOOP-Signature</code> (base64 HMAC-SHA256 with the WHOOP app's client secret over <code>X-WHOOP-Signature-Timestamp</code> followed by the raw body) and the timestamp must be within five minutes. A valid event only names a record the server then fetches from WHOOP again; a repeated <code>trace_id</code> is ignored. 404 when WHOOP is not switched on.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Public: no authentication required.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">X-WHOOP-Signature <span class="p-hint">(header)</span><em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">X-WHOOP-Signature-Timestamp <span class="p-hint">(header)</span><em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+<p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">user_id</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">id</span>
+    <span class="p-type">string <span class="p-hint">(uuid)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">type</span>
+    <span class="p-type">&quot;workout.updated&quot; | &quot;workout.deleted&quot; | &quot;sleep.updated&quot; | &quot;sleep.deleted&quot; | &quot;recovery.updated&quot; | &quot;recovery.deleted&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">trace_id</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">204</span>
+    <span class="p-desc">Taken.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">Bad or stale signature.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">WHOOP is off on this server.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">413</span>
+    <span class="p-desc">Body over 8 KB.</span>
   </div>
     </div>
   </div>
