@@ -91,7 +91,7 @@ Files
 - Frontend `lib/integrations.js` CARDS entry, cardState case, `CARD_MODULE.whoop = 'integrations'`; `views/Integrations.jsx` `startWhoop`, `WhoopDetail` (status, last sync, backfill progress from info, Reconnect, Disconnect), return effect generalised per provider.
 
 Slices
-- C1 Connect. Test (api/test/whoop.test.js): authorize URL state is exactly 8 chars; replayed state refused; callback under another session 403. Existing strava.test.js state tests prove Strava untouched.
+- C1 Connect. Test (api/test/whoop.test.js): authorize URL state is exactly 8 chars; replayed state refused; callback under another session 403. Strava's signed state is unchanged except that, like WHOOP's, it now carries the browser binding below; api/test/server-strava.test.js sends the binding cookie.
 - C2 Refresh. Test: two concurrent `token()` on an expired token make one token POST; the fake rejects reuse of rotated r1. Test: reseal happens before the first authed GET; reseal throwing means no GET and status attention.
 - C3 Backfill. Fixed end at backfill start; cursor persists start, end, limit and nextToken. Test (whoop-sync.test.js, injected clock): 3 pages per collection land; restart mid-backfill after the clock advanced and newer records were added resumes with the same bounds and no duplicates or gaps. Test: repeated next_token or > MAX_PAGES stops the loop.
 - C4 Poll. 60 s tick, due when `now - polledAt >= 15 min`; fetch window `start = min(lastScanEnd - 1h, now - 3d)` to a fixed `end = now`, paged with persisted bounds (bounds are occurrence time, D22); ids missing from a complete listing inside the 3-day part become delete candidates, confirmed by GET by id (404 -> delete, 200 -> keep, error -> retry next poll). Test: listing omits a stored record whose by-id GET returns 200 -> it survives. Pending ids re-fetched by id every poll, any age. Test: server off 10 days, records created then appear on next poll (SC-3a). Test: pending record older than 3 days becomes scored with no webhook (SC-4a). Test: edit and delete in window reflected; a listing failing on page 2 deletes nothing. Test: integrations module off or paused makes zero fetches (A8).
@@ -135,7 +135,7 @@ Design choices
 Blast radius
 | Change | Consumers | Safe because |
 |---|---|---|
-| Optional `stateLen`, `token` on providers; `hub.attach` | webhook, strava providers | hub branches only on `stateLen === 8`, which neither sets |
+| Optional `stateLen`, `token` on providers; `hub.attach` | webhook, strava providers | hub branches on `stateLen === 8`, which neither sets; the browser binding (below) applies to every OAuth provider, Strava included, on purpose (security review) |
 | `back()` to `/#/...` | Strava return, 2 test asserts | current target never reaches HashRouter (F3) |
 | in-memory `pending` states | connects in flight at restart | same as Strava's usedNonces today; person restarts connect |
 | New `data/whoop/` | backups, account deletion | nothing existing reads it; removeUser deletes it |
@@ -146,4 +146,7 @@ Trust boundaries
 - HTTP: 401 -> one single-flight refresh, one retry; 429 sets a provider-wide blocked-until from Retry-After / rate-limit reset headers (no cap) that poll, backfill, webhook work and Check connection all respect; 5xx/network ends tick, cursor unchanged.
 - Webhook: raw bytes <= 8 KB; timingSafeEqual on base64 HMAC; timestamp within 5 min; bounded trace_id dedupe; user_id must match a connection's whoopUser; payload only triggers a re-fetch by id.
 - OAuth callback: state exactly 8 chars and present in pending; code sliced to 512; `error` -> denied redirect.
+- Browser binding (security review, every OAuth provider): the start route sets cookie `og_oauth_bind` (random, Path=/api/integrations/oauth, Max-Age=600, HttpOnly, SameSite=Lax, Secure on https); the state holds only its HMAC; a callback without the matching cookie is refused as `state` before any token exchange, so a sign-in link sent to someone else cannot land their account on the sender's profile. At most two WHOOP sign-ins wait per profile.
+- The connection label is always 'WHOOP': the account holder's name is never stored or audited; the WHOOP user id identifies the account.
+- Blast radius addition: commitState merges `whoopChoice` per entry against the stored copy (an app that does not know the map sends it whole), and API tokens get 403 for a changed server-owned key.
 

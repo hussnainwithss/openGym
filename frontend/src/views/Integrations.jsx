@@ -569,7 +569,7 @@ function StravaDetail({ close, conn: initial, server, toast }) {
 
 /* ---------------- WHOOP (fork) ---------------- */
 
-const WHOOP_ERRORS = {
+export const WHOOP_ERRORS = {
   denied: 'WHOOP was not given access. Nothing was connected.',
   state: 'That sign-in took too long or came from somewhere else. Start again from here.',
   signin: 'Sign in to your server first, then connect WHOOP.',
@@ -579,7 +579,7 @@ const WHOOP_ERRORS = {
 
 // What WHOOP's sync and check say, by their code (api/integrations/whoop/client.js, sync.js), so
 // no server or network text reaches the screen.
-const WHOOP_SYNC = {
+export const WHOOP_SYNC = {
   reconnect: 'WHOOP no longer accepts this sign-in. Reconnect it.',
   lost: 'A sign-in refresh went missing on the way. Reconnect WHOOP.',
   rate: 'WHOOP asked to slow down. Trying again shortly.',
@@ -588,7 +588,7 @@ const WHOOP_SYNC = {
   gone: 'Disconnected.',
 }
 /** The fixed message for `code` in `map`, or `fallback`: a code from a URL or a reply is only a key. */
-const whoopMessage = (map, code, fallback) => (typeof code === 'string' && Object.hasOwn(map, code) ? map[code] : fallback)
+export const whoopMessage = (map, code, fallback) => (typeof code === 'string' && Object.hasOwn(map, code) ? map[code] : fallback)
 
 // Like Strava: a trip to WHOOP and back to this server's address, from a browser with its session.
 function startWhoop(card) {
