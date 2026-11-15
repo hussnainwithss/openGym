@@ -67,3 +67,21 @@ test('the sign-in start sends a signed-in browser to WHOOP with an 8-character s
   assert.equal(to.searchParams.get('state').length, 8);
   assert.equal(to.searchParams.get('redirect_uri'), 'https://gym.example.com/api/integrations/oauth/callback');
 });
+
+test('a device cannot write what only the server writes: its whoopActs are replaced by the stored ones', async t => {
+  const h = await startServer(t, WHOOP);
+  const stored = { _rev: 4, unit: 'kg', workouts: [], routines: [], whoopActs: { wAAA: { gone: 1, _ts: 100 } } };
+  fs.writeFileSync(path.join(h.dataDir, 'state-u_w_1.json'), JSON.stringify(stored));
+  const headers = { Cookie: `gymsid=${mintSession('u_w_1')}`, 'Sec-Fetch-Site': 'same-origin', 'Content-Type': 'application/json' };
+  const sent = { ...stored, whoopActs: { wAAA: { d: '2026-11-01', sport: 'run', min: 5, _ts: 999 }, wBBB: { gone: 1, _ts: 999 } } };
+  const put = await fetch(h.api + '/api/data', { method: 'PUT', headers, body: JSON.stringify({ state: sent, baseRev: 4 }) });
+  assert.equal(put.status, 200);
+  const doc = JSON.parse(fs.readFileSync(path.join(h.dataDir, 'state-u_w_1.json'), 'utf8'));
+  assert.deepEqual(doc.whoopActs, stored.whoopActs);
+  // one revision further than the device was told, so it reads the corrected copy
+  assert.equal(doc._rev, 6);
+  // and a device that sent none does not delete the stored ones
+  const put2 = await fetch(h.api + '/api/data', { method: 'PUT', headers, body: JSON.stringify({ state: { ...stored, _rev: 6, whoopActs: undefined }, baseRev: 6 }) });
+  assert.equal(put2.status, 200);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.dataDir, 'state-u_w_1.json'), 'utf8')).whoopActs, stored.whoopActs);
+});

@@ -24,6 +24,7 @@
 // never makes a second one, and a removed one is never brought back (the stamp stays).
 import { NOTE_MAX } from './history.js'
 import { hashId } from './weigh-ins.js'
+import { effectiveActivity } from '../../../api/coach/core/whoop-activities.js'
 
 export const SPORTS = ['run', 'ride', 'swim', 'hike', 'row', 'ski', 'football', 'racket', 'ball', 'climb', 'fight', 'yoga', 'dance', 'other']
 export const SPORT_LABEL = {
@@ -110,7 +111,8 @@ export function activitiesOf(S) {
   const map = isMap(S?.activities) ? S.activities : {}
   const out = []
   for (const [id, e] of Object.entries(map)) {
-    const a = readActivity(e)
+    // A WHOOP session as WHOOP last left it, unless the person edited it (api/coach/core/whoop-activities.js).
+    const a = readActivity(effectiveActivity(S, id, e))
     if (a) out.push({ id, ...a, _ts: Number(e._ts) || 0 })
   }
   return out.sort((a, b) => (a.d < b.d ? 1 : a.d > b.d ? -1 : (b.at || 0) - (a.at || 0) || b._ts - a._ts))
@@ -130,7 +132,13 @@ export const activityCountsStreak = S => S?.activityStreak === true
  * a stamped empty entry, so the removal syncs.
  */
 export function withActivity(map, id, activity, now = Date.now()) {
-  const clean = activity ? readActivity(activity) : null
+  let clean = activity ? readActivity(activity) : null
+  // A WHOOP session the person changed is theirs from now on: WHOOP's later updates no longer
+  // show over it. A new length replaces the exact one WHOOP measured (a note leaves it).
+  if (clean?.src === 'whoop') {
+    clean = { ...clean, edited: 1 }
+    if (clean.durMs && Math.min(ACTIVITY_MIN_MAX, Math.max(1, Math.round(clean.durMs / 60000))) !== clean.min) clean.durMs = clean.min * 60000
+  }
   return { ...(isMap(map) ? map : {}), [id]: clean ? { ...clean, _ts: now } : { _ts: now } }
 }
 

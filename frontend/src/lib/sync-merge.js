@@ -93,7 +93,19 @@ const list = v => (Array.isArray(v) ? v : [])
 // recoverySessions is a sauna or an ice bath (lib/recovery-sessions.js), one entry per session;
 // gymNotes a note pinned at one gym, journalFolders a saved journal filter (lib/journal.js),
 // activities a run or a football match (lib/activities.js), one entry per session.
-export const STAMPED_MAPS = ['balanceOverrides', 'loadKind', 'plates', 'dbLoad', 'dumbbells', 'stackWeights', 'exUnit', 'dayNotes', 'dayPhotos', 'exMerged', 'exGym', 'sessionTargets', 'exMedia', 'recoverySessions', 'gymNotes', 'journalFolders', 'dayForm', 'activities']
+export const STAMPED_MAPS = ['balanceOverrides', 'loadKind', 'plates', 'dbLoad', 'dumbbells', 'stackWeights', 'exUnit', 'dayNotes', 'dayPhotos', 'exMerged', 'exGym', 'sessionTargets', 'exMedia', 'recoverySessions', 'gymNotes', 'journalFolders', 'dayForm', 'activities', 'whoopActs']
+// Keys only the server writes (WHOOP data, fork; api/sync-stamps.js SERVER_OWNED): the server keeps
+// its copy whatever a device sends, and a device takes the server's copy whole when it merges one.
+export const SERVER_OWNED = ['whoopActs']
+/** `merged` with the server's copy of every server-owned key (mutates and returns it). */
+export function takeServerOwned(merged, server) {
+  if (!merged || typeof merged !== 'object') return merged
+  for (const k of SERVER_OWNED) {
+    if (server && server[k] !== undefined) merged[k] = clone(server[k])
+    else delete merged[k]
+  }
+  return merged
+}
 
 /** The copy with the later `_ts`; on a tie the first argument (callers pass local first). */
 export const newerOf = (a, b) => ((b?._ts || 0) > (a?._ts || 0) ? b : a)
@@ -719,7 +731,7 @@ function applyDeletions(S, deleted) {
 const OWN_MERGE = new Set([
   '_ts', '_rev', '_wid', '_wids', '_unstamped', '_prior', 'active', 'unit', 'unitSet', 'resetAt', 'resetIds', 'deleted', 'edited', 'undone', 'routineOrder',
   'workouts', 'routines', 'customEx', 'equipProfiles', 'gymCards', 'bodyweight', 'measurements', 'favEx',
-  'exWeights', 'balanceOverrides', 'loadKind', 'plates', 'dbLoad', 'dumbbells', 'stackWeights', 'exUnit', 'dayNotes', 'dayPhotos', 'exMerged', 'exGym', 'sessionTargets', 'exMedia', 'recoverySessions', 'gymNotes', 'journalFolders', 'dayForm', 'activities',
+  'exWeights', 'balanceOverrides', 'loadKind', 'plates', 'dbLoad', 'dumbbells', 'stackWeights', 'exUnit', 'dayNotes', 'dayPhotos', 'exMerged', 'exGym', 'sessionTargets', 'exMedia', 'recoverySessions', 'gymNotes', 'journalFolders', 'dayForm', 'activities', 'whoopActs',
 ])
 // Stamped per key instead of whole: one day of the plan, one exercise's note or bar, one programme
 // (lib/programmes.js; the running one, `programme`, is a plain setting).
@@ -1102,7 +1114,8 @@ export function stampReplace(next, others = [], now = Date.now()) {
     }
   }
   for (const f of STAMPED_MAPS) {
-    if (!isMap(next[f])) continue
+    // A backup holds an old copy of what the server alone writes: it never gets a device's stamp.
+    if (!isMap(next[f]) || SERVER_OWNED.includes(f)) continue
     for (const [k, v] of Object.entries(next[f])) {
       if (!isMap(v)) continue
       if (others.some(o => isMap(o?.[f]) && k in o[f] && !sameJSON({ ...o[f][k], _ts: 0 }, { ...v, _ts: 0 }))) v._ts = Math.max(stampOf(v), now)

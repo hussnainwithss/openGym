@@ -302,7 +302,8 @@ function deliver(c, ev, { ts = String(c.clock.t), secret } = {}) {
   const raw = JSON.stringify(ev);
   return c.h.whoopWebhook(Buffer.from(raw), { 'x-whoop-signature': sign(raw, ts, secret), 'x-whoop-signature-timestamp': ts });
 }
-const settle = () => new Promise(r => setTimeout(r, 30));
+// Waits for the run a webhook started: it holds the connection's gate, so this queues behind it.
+const settle = c => new Promise(r => setImmediate(r)).then(() => c.h._whoop().withGate('u1', c.id, async () => {}));
 
 test('a signed webhook fetches the named record at once; a bad signature, a stale one or a replay does nothing', async () => {
   const w = fakeWhoop();
@@ -314,18 +315,18 @@ test('a signed webhook fetches the named record at once; a bad signature, a stal
   const asked = w.calls.length;
   assert.deepEqual(deliver(c, ev, { secret: 'nope' }), { ok: false, status: 401 });
   assert.deepEqual(deliver(c, ev, { ts: String(c.clock.t - 6 * MIN) }), { ok: false, status: 401 });
-  await settle();
+  await settle(c);
   assert.equal(w.calls.length, asked);
   assert.deepEqual(deliver(c, ev), { ok: true });
-  await settle();
+  await settle(c);
   assert.equal(c.doc().records.workout[old.id].strain, 19.9);
   const after = w.calls.length;
   assert.deepEqual(deliver(c, ev), { ok: true });   // the same trace again
-  await settle();
+  await settle(c);
   assert.equal(w.calls.length, after);
   // another WHOOP account's event touches nobody
   assert.deepEqual(deliver(c, { ...ev, user_id: 1, trace_id: 'tr-2' }), { ok: true });
-  await settle();
+  await settle(c);
   assert.equal(w.calls.length, after);
 });
 
@@ -337,7 +338,7 @@ for (const order of [['recovery.deleted', 'sleep.deleted'], ['sleep.deleted', 'r
     const sl = w.sleep[0], cyc = String(w.cycle[0].id);
     assert.ok(c.doc().records.recovery[cyc]);
     w.sleep.length = 0; w.recovery.length = 0;
-    for (const [i, type] of order.entries()) { deliver(c, { user_id: 4242, id: sl.id, type, trace_id: 'd' + i }); await settle(); }
+    for (const [i, type] of order.entries()) { deliver(c, { user_id: 4242, id: sl.id, type, trace_id: 'd' + i }); await settle(c); }
     const d = c.doc();
     assert.equal(d.records.sleep[sl.id], undefined);
     assert.equal(d.records.recovery[cyc], undefined);
@@ -463,4 +464,54 @@ test('the day is the workout’s own local day; strength work is marked; a 20-se
   assert.equal(A[whoopActivityId(lift.id)].title, 'Weightlifting');
   assert.equal(A[whoopActivityId(blip.id)].min, 1);
   assert.equal(A[whoopActivityId(blip.id)].durMs, 20_000);
+});
+
+/* ---- whoop-activities A3: WHOOP's later changes and deletions ---- */
+
+const { effectiveActivity } = await import('../coach/core/whoop-activities.js');
+
+test('a WHOOP change after import goes to whoopActs and shows; a deletion hides it; a session the person edited stays theirs', async () => {
+  const w = fakeWhoop();
+  const run = rec.workout({ start: T0 - DAY, end: T0 - DAY + 30 * MIN, strain: 9 });
+  const ride = rec.workout({ start: T0 - 2 * DAY, end: T0 - 2 * DAY + 60 * MIN, sport: 'cycling' });
+  const mine = rec.workout({ start: T0 - 3 * DAY, end: T0 - 3 * DAY + 45 * MIN });
+  w.workout.push(run, ride, mine);
+  const c = await backfilled({ w });
+  const [rid, did, mid] = [run, ride, mine].map(r => whoopActivityId(r.id));
+  // the person edits one on their phone (the app marks it edited)
+  c.profile.S.activities[mid] = { ...c.profile.S.activities[mid], note: 'felt great', edited: 1, _ts: c.clock.t + 1 };
+  run.score.strain = 14;
+  mine.score.strain = 20;
+  w.workout.splice(w.workout.indexOf(ride), 1);
+  c.clock.t += 16 * MIN;
+  await c.sync.tick();
+  const S = c.profile.S;
+  // the stored activity is never rewritten; what WHOOP changed sits beside it
+  assert.equal(S.activities[rid].strain, 9);
+  assert.equal(S.whoopActs[rid].strain, 14);
+  assert.equal(effectiveActivity(S, rid, S.activities[rid]).strain, 14);
+  assert.deepEqual((({ _ts, ...g }) => g)(S.whoopActs[did]), { gone: 1 });
+  assert.equal(effectiveActivity(S, did, S.activities[did]), null);
+  assert.equal(S.whoopActs[mid], undefined);
+  assert.equal(effectiveActivity(S, mid, S.activities[mid]).note, 'felt great');
+});
+
+test('another WHOOP account’s sessions are not marked deleted when the history starts over', async () => {
+  const w = fakeWhoop();
+  const run = rec.workout({ start: T0 - DAY, end: T0 - DAY + 30 * MIN });
+  w.workout.push(run);
+  const c = await backfilled({ w });
+  w.userId = 777; w.workout.length = 0;
+  const st = new URL(c.h.oauthStart('u1', 'whoop', CB)).searchParams.get('state');
+  await c.h.oauthFinish({ state: st, code: 'good' }, 'u1');
+  await c.sync.tick();
+  assert.equal(c.profile.S.whoopActs?.[whoopActivityId(run.id)], undefined);
+});
+
+test('the server’s week streak leaves out a WHOOP session deleted in WHOOP', async () => {
+  const { streakWalk } = await import('../coach/core/streak.js');
+  const S = { weekStart: 1, activityStreak: true, workouts: [],
+    activities: { wX: { d: '2026-11-10', sport: 'run', min: 30, src: 'whoop', wu: '00000000-0000-4000-8000-000000000009', _ts: 1 } } };
+  assert.equal(streakWalk(S, '2026-11-11').thisWeekDone, true);
+  assert.equal(streakWalk({ ...S, whoopActs: { wX: { gone: 1, _ts: 2 } } }, '2026-11-11').thisWeekDone, false);
 });

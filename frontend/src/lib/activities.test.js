@@ -156,3 +156,41 @@ describe('activities: WHOOP (fork)', () => {
     expect(readActivity({ ...e, src: 'hc' }).strain).toBeUndefined()
   })
 })
+
+describe('activities: WHOOP updates never undo the person (fork, SC-17)', async () => {
+  const { mergeStates, takeServerOwned, stampReplace, SERVER_OWNED, STAMPED_MAPS } = await import('./sync-merge.js')
+  const api = await import('../../../api/sync-stamps.js')
+  const base = { d: '2026-11-14', sport: 'run', min: 30, src: 'whoop', wu: '00000000-0000-4000-8000-000000000001', wa: '4242', strain: 9, _ts: 100 }
+
+  it('deleted offline at T+1, WHOOP updated at T+2: it stays deleted', () => {
+    const phone = { activities: { w1: { _ts: 101 } } }
+    const server = { activities: { w1: base }, whoopActs: { w1: { ...base, strain: 14, _ts: 102 } } }
+    const merged = takeServerOwned(mergeStates(phone, server), server)
+    expect(activitiesOf(merged)).toEqual([])
+  })
+
+  it('a note added offline at T+1 keeps the session the person’s: WHOOP’s update at T+2 does not show over it', () => {
+    const phone = { activities: withActivity({ w1: base }, 'w1', { ...base, note: 'felt great' }, 101) }
+    const server = { activities: { w1: base }, whoopActs: { w1: { d: base.d, sport: 'run', min: 30, strain: 14, _ts: 102 } } }
+    const [a] = activitiesOf(takeServerOwned(mergeStates(phone, server), server))
+    expect(a.note).toBe('felt great')
+    expect(a.strain).toBe(9)
+  })
+
+  it('a new length replaces WHOOP’s exact one; a note leaves it', () => {
+    const exact = { ...base, durMs: 30 * 60000 + 20000 }
+    expect(withActivity({}, 'w1', { ...exact, note: 'x' }, 1).w1.durMs).toBe(exact.durMs)
+    expect(withActivity({}, 'w1', { ...exact, min: 20 }, 1).w1.durMs).toBe(20 * 60000)
+  })
+
+  it('the server’s copy of what it alone writes wins a merge whole, even against a newer stamp; a backup never restamps it', () => {
+    const phone = { whoopActs: { w1: { strain: 1, _ts: 900 } } }
+    const server = { whoopActs: { w1: { gone: 1, _ts: 100 } } }
+    expect(takeServerOwned(mergeStates(phone, server), server).whoopActs).toEqual(server.whoopActs)
+    const backup = { whoopActs: { w1: { strain: 1, _ts: 50 } } }
+    expect(stampReplace(backup, [server], 999).whoopActs.w1._ts).toBe(50)
+    // the two hand copies agree on what is the server's and what is stamped per entry
+    expect(api.SERVER_OWNED).toEqual(SERVER_OWNED)
+    expect(api.STAMPED_MAPS).toEqual(STAMPED_MAPS)
+  })
+})

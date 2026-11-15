@@ -11,6 +11,7 @@
  * when one overlaps a workout logged in openGym is decided when the app reads it
  * (api/coach/core/whoop-activities.js). */
 import crypto from 'node:crypto';
+import { effectiveActivity } from '../../coach/core/whoop-activities.js';
 
 // WHOOP sport names → openGym's SPORTS. Anything else is 'other', named after WHOOP's sport.
 const SPORT = {
@@ -54,16 +55,45 @@ export function activityOf(r, whoopUser) {
   return out;
 }
 
-/** The whoop-activities projector: new WHOOP workouts into S.activities. → whether S changed. */
+const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
+const FIELDS = ['d', 'sport', 'min', 'at', 'durMs', 'km', 'title', 'st', 'strain', 'hr', 'hrMax', 'kj'];
+const pick = a => Object.fromEntries(FIELDS.filter(k => a[k] !== undefined).map(k => [k, a[k]]));
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/** The whoop-activities projector: new WHOOP workouts into S.activities, later changes and
+ *  deletions into S.whoopActs. → whether S changed. */
 export function projectActivities(S, doc, t) {
-  const map = S.activities && typeof S.activities === 'object' && !Array.isArray(S.activities) ? S.activities : {};
-  let changed = false;
+  const map = isMap(S.activities) ? S.activities : {};
+  const acts = isMap(S.whoopActs) ? S.whoopActs : {};
+  let added = false, updated = false;
   for (const r of Object.values(doc.records.workout)) {
     const id = whoopActivityId(r.id);
-    if (Object.hasOwn(map, id)) continue;   // there already, or removed by the person: theirs
-    map[id] = { ...activityOf(r, doc.whoopUser), _ts: t };
-    changed = true;
+    if (!Object.hasOwn(map, id)) {
+      map[id] = { ...activityOf(r, doc.whoopUser), _ts: t };
+      added = true;
+      continue;
+    }
+    // There already: removed or edited by the person, it is theirs; otherwise WHOOP's latest
+    // goes into whoopActs when it differs from what shows now.
+    const entry = map[id];
+    if (!isMap(entry) || entry.src !== 'whoop' || entry.edited === 1 || entry.wu !== r.id) continue;
+    const latest = pick(activityOf(r, doc.whoopUser));
+    const shown = effectiveActivity(S, id, entry);
+    if (shown && same(pick(shown), latest)) continue;
+    acts[id] = { ...latest, _ts: t };
+    updated = true;
   }
-  if (changed) S.activities = map;
-  return changed;
+  // Deleted in WHOOP: only once the whole history is in (before that, missing means not fetched
+  // yet), and only for this WHOOP account's sessions (another account's stay, D12/D20).
+  if (doc.cursors.workout?.done) {
+    for (const [id, entry] of Object.entries(map)) {
+      if (!isMap(entry) || entry.src !== 'whoop' || entry.edited === 1 || !entry.wu || entry.wa !== doc.whoopUser) continue;
+      if (doc.records.workout[entry.wu] || acts[id]?.gone === 1) continue;
+      acts[id] = { gone: 1, _ts: t };
+      updated = true;
+    }
+  }
+  if (added) S.activities = map;
+  if (updated) S.whoopActs = acts;
+  return added || updated;
 }

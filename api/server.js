@@ -37,7 +37,7 @@ import {
 import { startAdminSocket } from './admin-socket.js';
 import { createMediaStore, mediaLimits, mediaConfig, MediaError, HASH_RE } from './media.js';
 import { effectiveRoutineId } from './queue.js';
-import { stampPut, highestStamp } from './sync-stamps.js';
+import { stampPut, highestStamp, SERVER_OWNED } from './sync-stamps.js';
 import { atomicWrite as durableWrite } from './durable.js';
 import { ipv6Groups, guardedLookup, pushEndpointError, MAX_PUSH_ENDPOINT, outboundLookup } from './net-guard.js';
 import { createIntegrations } from './integrations/index.js';
@@ -546,6 +546,14 @@ function commitState(uid, cur, state, { overRead = false, stamped = false } = {}
   // undone by the next device that merges (sync-stamps.js).
   // A document nested too deep to compare is the bad request the stringify below refuses too.
   const report = {};
+  // What only the server writes (WHOOP data) is never a device's to set: the stored copy goes back,
+  // and a document that differed goes in one revision further so its device reads it again.
+  for (const k of SERVER_OWNED) {
+    const want = cur ? cur[k] : undefined;
+    if (JSON.stringify(state[k]) === JSON.stringify(want)) continue;
+    if (want === undefined) delete state[k]; else state[k] = JSON.parse(JSON.stringify(want));
+    report.changed = true;
+  }
   try { stampPut(cur, state, { overRead, stamped, report }); }
   catch (e) { if (e instanceof RangeError) return { status: 400, body: { error: 'invalid state' } }; throw e; }
   state._rev = curRev + 1;          // server-owned; whatever the client sent is ignored

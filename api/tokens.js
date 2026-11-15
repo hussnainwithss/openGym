@@ -49,6 +49,9 @@ export const KEY_CATEGORY = {
   measurements: ['measurements'], customMeasurements: ['measurements'], measurementEnabled: ['measurements'],
   dayNotes: ['notes'], exNotes: ['notes'], gymNotes: ['notes'], journalFolders: ['notes'],
   recoverySessions: ['workouts'], activities: ['workouts'],
+  // WHOOP (fork): what WHOOP changed on an imported activity; read with the activities, never written
+  // by a token (server.js commitState keeps the stored copy).
+  whoopActs: ['workouts'],
   // Body facts the Tools page and the strength levels read (v1.4.5): personal, so not a setting
   // that rides along with a plans-only token.
   heightCm: ['bodyweight', 'measurements'], birthYear: ['bodyweight', 'measurements'], sex: ['bodyweight', 'measurements'],
