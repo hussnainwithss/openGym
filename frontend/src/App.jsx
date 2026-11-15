@@ -3,6 +3,7 @@ import { DEMO } from './lib/demo.js'
 import { useDailyWebdav } from './lib/use-daily-webdav.js'
 import { offlineBuild } from './lib/build-caps.js'
 import { hideBoot } from './lib/boot.js'
+import { bootDone } from './lib/boot-report.js'
 import { HashRouter, Routes, Route, Navigate, useNavigate, useLocation, useNavigationType } from 'react-router-dom'
 import { useStore } from './store/useStore.js'
 import { useUI } from './store/useUI.js'
@@ -386,7 +387,7 @@ function Shell() {
   useRoutineLinks(setupDone)
   useTourOffer(setupDone, loadTour)
   // The boot screen in index.html covers the start; it goes once there is something to show.
-  useEffect(() => { if (ready || authed) hideBoot() }, [ready, authed])
+  useEffect(() => { if (ready || authed) { hideBoot(); bootDone() } }, [ready, authed])
   if (!ready && !authed) return (
     <div id="app">
       <div style={{ paddingTop: '44vh', display: 'flex', justifyContent: 'center' }}>

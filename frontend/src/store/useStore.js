@@ -8,6 +8,7 @@ import { syncGymInventory } from '../lib/gym-inventory.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
 import { rememberDefaultLang } from '../lib/default-lang.js'
 import { guestAllowed } from '../lib/guest.js'
+import { bootStage } from '../lib/boot-report.js'
 import { stateJson } from '../lib/state-json.js'
 import { MOBILE, initReminderSync, nativeLoad, nativeSave, onAppActive, readJsonFile, syncReminder, writeAutoBackup, writeJsonFile } from '../lib/mobile.js'
 import { initHealthSync, syncHealth, readHealth } from '../lib/health-sync.js'
@@ -772,6 +773,7 @@ export const useStore = create((set, get) => {
   }
   // Boot's last step: from here on changes push, and one made during boot goes now.
   const finishBoot = (extra = {}) => {
+    bootStage('ready')
     set({ ready: true, ...extra })
     if (pushPending && get().user) {
       clearTimeout(pushTm)
@@ -2163,6 +2165,7 @@ export const useStore = create((set, get) => {
 
     // Boot: ask the server who we are, then pull.
     async boot() {
+      bootStage('boot')
       // Mobile build: no backend by default — restore from the file mirror (the durable copy;
       // localStorage may have been evicted since the last run) and go straight in. Unless this
       // device was paired to a server ("connect to my server" mode, lib/remote.js), in which
@@ -2258,6 +2261,7 @@ export const useStore = create((set, get) => {
       // boot. Ending the session needs a positive `allow_guest: false`; see lib/guest.js for why
       // an unreachable server must not be allowed to lock anyone out (#42).
       const cfg = await get().loadConfig()
+      bootStage(cfg ? 'config' : 'config-failed')
       if (!guestAllowed(cfg)) get().setGuest(false)
       // A sign-out that could not reach the server: finish it first. Still unanswered, the
       // browser stays signed out rather than adopt the session it left behind.
@@ -2275,6 +2279,7 @@ export const useStore = create((set, get) => {
         // alone: a server from before the flag, or one that did not answer, is asked as before.
         if (cfg?.signed_in === false) throw Object.assign(new Error('not signed in'), { status: 401 })
         const me = await api('/api/me')
+        bootStage('me')
         if (!me.user?.id) throw Object.assign(new Error('no user'), { status: 200, code: 'bad-response' })
         get().setUser(me.user, arrived ? { adopt: true } : undefined)
         if (arrived) {

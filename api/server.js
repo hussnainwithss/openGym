@@ -25,6 +25,7 @@ import {
   normalizeEmail, maskEmail
 } from './password.js';
 import { createBackoff, createWindow } from './rate-limit.js';
+import { createClientErrorLog } from './client-errors.js';
 import {
   listPasskeys, addPasskeyRecord, renamePasskeyRecord, removePasskeyRecord, passkeyRemovalRefused, MAX_PASSKEYS,
   transportsOf,
@@ -1230,6 +1231,9 @@ if (AUDIT_ON) {
 // the whole instance: one client can pause *password* sign-in for everybody for a while, and the
 // per-name pause is what still protects each password.
 const AUTH_BURST = createWindow({ max: 60, windowMs: 60000 });
+// Start-up failure reports from the web app (fork, client-errors.js): DATA_DIR/client-errors.log.
+const CLIENT_ERRORS = createClientErrorLog({ file: path.join(DATA, 'client-errors.log') });
+setInterval(() => CLIENT_ERRORS.sweep(), 10 * 60000).unref();
 const ADDR_FAILS = createBackoff({ free: 20, baseMs: 30000, maxMs: 15 * 60000, forgetMs: 3600000 });
 const ACCOUNT_FAILS = createBackoff({
   free: 5, baseMs: 60000, maxMs: 3600000, forgetMs: 24 * 3600000,
@@ -2585,6 +2589,17 @@ const routes = {
   // the instance has both switched the Coach on and successfully connected a provider — the
   // single flag every piece of Coach UI hangs off, so an unconfigured instance is byte-for-byte
   // the app it was before the feature existed.
+  // Fork: the web app's report of a start-up that failed or hung (frontend lib/boot-report.js).
+  // No session: it is sent before anyone could sign in. Small, throttled, always 204 so a page
+  // that is already broken never retries into a loop.
+  'POST /api/client-error': async (req, res) => {
+    const raw = await readRaw(req, 16 * 1024);
+    let body = null;
+    try { body = JSON.parse(raw.toString('utf8')); } catch { /* counted as invalid below */ }
+    if (CLIENT_ERRORS.record(limitAddress(req), clientIp(req), body) === 'invalid') return json(res, 400, { error: 'invalid report' });
+    res.writeHead(204); res.end();
+  },
+
   'GET /api/config': async (req, res) => {
     // The Coach block names the provider this instance is wired to — the same fact
     // /api/coach/disclosure refuses to hand out without a session, and for the same reason: on an

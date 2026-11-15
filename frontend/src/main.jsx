@@ -1,3 +1,5 @@
+// First: the start-up trace (fork) listens before any other module of the app runs.
+import { bootStage } from './lib/boot-report.js'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
@@ -33,6 +35,7 @@ applyDisplay()
 // Settings → About → Network log (lib/net-log.js): from the very first request on.
 if (MOBILE) startNetLog()
 
+bootStage('modules')
 const render = () => createRoot(document.getElementById('root')).render(
   <StrictMode><App /></StrictMode>
 )

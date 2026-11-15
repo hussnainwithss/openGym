@@ -266,6 +266,54 @@ paths:
                   writable: { type: boolean, const: false }
               example: { ok: false, writable: false }
 
+  /api/client-error:
+    post:
+      tags: [meta]
+      operationId: reportClientError
+      summary: Report a web app start-up failure
+      description: |
+        Fork. Sent by the web app when it fails or hangs before it has drawn
+        (frontend `lib/boot-report.js`), so a blank page leaves a trace on the server.
+        Written as one line to `DATA_DIR/client-errors.log` and the container log.
+        No session needed; at most 5 reports per address per 10 minutes and 60 per
+        hour for the instance, beyond which reports are dropped silently.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string, enum: [error, rejection, stuck] }
+                msg: { type: string, maxLength: 500 }
+                stack: { type: string, maxLength: 4000 }
+                src: { type: string, maxLength: 300, description: 'file:line:col of the error' }
+                stage: { type: string, maxLength: 40, description: Last start-up step reached }
+                stages:
+                  type: array
+                  maxItems: 30
+                  items:
+                    type: object
+                    properties:
+                      s: { type: string, maxLength: 40 }
+                      t: { type: integer, description: ms since page start }
+                ms: { type: integer, description: ms since page start }
+                ua: { type: string, maxLength: 400 }
+                path: { type: string, maxLength: 200 }
+                build: { type: string, maxLength: 40 }
+                lang: { type: string, maxLength: 20 }
+                sw: { type: string, maxLength: 20 }
+                online: { type: boolean }
+      responses:
+        '204':
+          description: Received (or dropped by the rate limit).
+        '400':
+          description: Not a report.
+        '413':
+          description: Body over 16 KB.
+
   /api/config:
     get:
       tags: [meta]

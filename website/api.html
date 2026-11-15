@@ -328,7 +328,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <p class="api-facts">
     <span>OpenAPI 3.1.0</span>
     <span>openGym v1.4.5</span>
-    <span>179 endpoints</span>
+    <span>180 endpoints</span>
     <span>AGPL-3.0-or-later</span>
   </p>
 
@@ -402,6 +402,112 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s5">503</span>
     <span class="p-desc">The data directory could not be written — a full disk, or a mount that came back read-only. Nothing that stores anything will work until it is fixed; the reason is in the container log.</span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-reportClientError">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/client-error</code><span class="ep-chip public">public</span></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Report a web app start-up failure</span>
+  </summary>
+  <div class="ep-body">
+<p>Fork. Sent by the web app when it fails or hangs before it has drawn (frontend <code>lib/boot-report.js</code>), so a blank page leaves a trace on the server. Written as one line to <code>DATA_DIR/client-errors.log</code> and the container log. No session needed; at most 5 reports per address per 10 minutes and 60 per hour for the instance, beyond which reports are dropped silently.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Public: no authentication required.</span></p>
+
+<p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">kind<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;error&quot; | &quot;rejection&quot; | &quot;stuck&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">msg</span>
+    <span class="p-type">string <span class="p-hint">(&le; 500 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">stack</span>
+    <span class="p-type">string <span class="p-hint">(&le; 4000 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">src</span>
+    <span class="p-type">string <span class="p-hint">(&le; 300 chars)</span></span>
+    <span class="p-desc">file:line:col of the error</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">stage</span>
+    <span class="p-type">string <span class="p-hint">(&le; 40 chars)</span></span>
+    <span class="p-desc">Last start-up step reached</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">stages</span>
+    <span class="p-type">object[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">stages[].s</span>
+    <span class="p-type">string <span class="p-hint">(&le; 40 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">stages[].t</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc">ms since page start</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">ms</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc">ms since page start</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">ua</span>
+    <span class="p-type">string <span class="p-hint">(&le; 400 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">path</span>
+    <span class="p-type">string <span class="p-hint">(&le; 200 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">build</span>
+    <span class="p-type">string <span class="p-hint">(&le; 40 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">lang</span>
+    <span class="p-type">string <span class="p-hint">(&le; 20 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">sw</span>
+    <span class="p-type">string <span class="p-hint">(&le; 20 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">online</span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">204</span>
+    <span class="p-desc">Received (or dropped by the rate limit).</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Not a report.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">413</span>
+    <span class="p-desc">Body over 16 KB.</span>
   </div>
     </div>
   </div>
