@@ -22,6 +22,13 @@ export const MAX_PAGES = 40;
 export const TICK_MS = 60_000;
 export const POLL_MS = 15 * 60_000;
 export const PATHS = { cycle: '/v2/cycle', sleep: '/v2/activity/sleep', recovery: '/v2/recovery', workout: '/v2/activity/workout' };
+export const WINDOW_MS = 3 * 86_400_000;
+export const OVERLAP_MS = 3600_000;
+// Recovery is read through its cycle; the others by their own id.
+const BY_ID = {
+  workout: k => '/v2/activity/workout/' + k, sleep: k => '/v2/activity/sleep/' + k,
+  cycle: k => '/v2/cycle/' + k, recovery: k => '/v2/cycle/' + k + '/recovery',
+};
 
 const iso = ms => new Date(ms).toISOString();
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -48,14 +55,18 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
     });
   }
 
-  /** Records from one page into the doc. → whether anything changed. */
+  /** Records from one page into the doc. → { changed, keys } (the keys it saw). */
   function absorb(doc, coll, records) {
     let changed = false;
+    const keys = [];
     const t = now();
     for (const raw of records) {
       const r = NORMALIZE[coll](raw, t);
       if (!r) continue;
       const k = keyOf(coll, r);
+      keys.push(k);
+      const cand = doc.candidates[coll].indexOf(k);
+      if (cand >= 0) doc.candidates[coll].splice(cand, 1);
       if (coll === 'sleep' && r.cycle) doc.sleepCycle[r.id] = r.cycle;
       if (coll === 'recovery' && r.sleep) doc.sleepCycle[r.sleep] = r.cycle;
       if (!same(doc.records[coll][k], r)) { doc.records[coll][k] = r; changed = true; }
@@ -64,7 +75,94 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
       if (r.st === 'pending' && i < 0) pend.push(k);
       else if (r.st !== 'pending' && i >= 0) pend.splice(i, 1);
     }
-    return changed;
+    return { changed, keys };
+  }
+
+  /** A record WHOOP no longer has: out of the store (sleep → cycle stays, for recovery.deleted). */
+  function drop(doc, coll, k) {
+    for (const list of [doc.pending[coll], doc.candidates[coll], doc.due[coll]]) {
+      const i = list.indexOf(k);
+      if (i >= 0) list.splice(i, 1);
+    }
+    if (!(k in doc.records[coll])) return false;
+    delete doc.records[coll][k];
+    return true;
+  }
+
+  // When a record happened, for the poll window: recovery has no time of its own, its cycle has.
+  const whenOf = (doc, coll, r) => r.start ?? doc.records.cycle[r.cycle]?.start ?? r.at ?? 0;
+
+  /** One record by id. → { gone: true } on 404, { record } on 200; throws WhoopError otherwise. */
+  async function byId(uid, connId, coll, k) {
+    const r = await client.get(uid, connId, BY_ID[coll](k));
+    if (r.status === 404) return { gone: true };
+    if (r.status !== 200 || !r.data || typeof r.data !== 'object') throw new WhoopError('http', `WHOOP answered ${r.status}.`, { retry: true });
+    return { record: r.data };
+  }
+
+  /** Pending scores, delete candidates and webhook ids, each asked for by id. → pages left. */
+  async function settleIds(uid, connId, doc, budget, lists) {
+    for (const coll of COLLECTIONS) {
+      for (const list of lists) {
+        for (const k of [...doc[list][coll]]) {
+          if (budget <= 0) return budget;
+          const got = await byId(uid, connId, coll, k);
+          budget--;
+          if (got.gone) { if (drop(doc, coll, k)) doc.proj.dirty = true; }
+          else {
+            const { changed } = absorb(doc, coll, [got.record]);
+            if (changed) doc.proj.dirty = true;
+            const i = doc[list][coll].indexOf(k);
+            // still pending stays on the pending list; anything else is settled
+            if (i >= 0 && !(list === 'pending' && doc.records[coll][k]?.st === 'pending')) doc[list][coll].splice(i, 1);
+          }
+          if (!alive(uid, connId)) throw new WhoopError('gone', 'Disconnected.');
+          wstore.save(uid, doc);
+        }
+      }
+    }
+    return budget;
+  }
+
+  /** The 15-minute poll: everything that happened since the last completed scan (with an hour of
+   *  overlap, and never less than the last WINDOW_MS), then, for the last WINDOW_MS only, what a
+   *  complete listing no longer shows becomes a delete candidate, confirmed by id. → pages left. */
+  async function poll(uid, connId, doc, budget) {
+    const t = now();
+    doc.poll ||= { at: t, colls: {} };
+    for (const coll of COLLECTIONS) {
+      const p = doc.poll.colls[coll] ||= {
+        start: Math.min((doc.cursors[coll].scanEnd ?? t) - OVERLAP_MS, doc.poll.at - WINDOW_MS), end: doc.poll.at, next: null, seen: [], done: false,
+      };
+      while (!p.done && budget > 0) {
+        const { records, next } = await page(uid, connId, coll, p);
+        budget--;
+        if (next && next === p.next) throw new WhoopError('http', 'WHOOP repeated a page.', { retry: true });
+        const { changed, keys } = absorb(doc, coll, records);
+        if (changed) doc.proj.dirty = true;
+        p.seen.push(...keys);
+        p.next = next;
+        if (!next) p.done = true;
+        if (!alive(uid, connId)) throw new WhoopError('gone', 'Disconnected.');
+        wstore.save(uid, doc);
+      }
+      if (!p.done) return budget;
+    }
+    // Every listing completed: what is stored for the window but was not listed may be deleted.
+    for (const coll of COLLECTIONS) {
+      const p = doc.poll.colls[coll];
+      const seen = new Set(p.seen);
+      const from = Math.max(p.start, p.end - WINDOW_MS);
+      for (const [k, r] of Object.entries(doc.records[coll])) {
+        const w = whenOf(doc, coll, r);
+        if (w >= from && w < p.end && !seen.has(k) && !doc.candidates[coll].includes(k)) doc.candidates[coll].push(k);
+      }
+      doc.cursors[coll].scanEnd = p.end;
+    }
+    doc.polledAt = doc.poll.at;
+    doc.poll = null;
+    wstore.save(uid, doc);
+    return budget;
   }
 
   /** One page of a collection listing. → { records, next } or throws WhoopError. */
@@ -117,7 +215,10 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
       let doc = wstore.load(uid);
       if (doc.whoopUser == null) doc.whoopUser = conn.info.whoopUser || null;
       let budget = MAX_PAGES;
-      if (COLLECTIONS.every(c => doc.cursors[c]?.done) && !doc.proj.dirty) return;
+      const backfilled = () => COLLECTIONS.every(c => doc.cursors[c]?.done);
+      const waiting = () => COLLECTIONS.some(c => doc.due[c].length);
+      const pollDue = () => !!doc.poll || now() - (doc.polledAt || 0) >= POLL_MS;
+      if (backfilled() && !doc.proj.dirty && !waiting() && !pollDue()) return;
       try {
         for (const coll of COLLECTIONS) {
           const cur = doc.cursors[coll] || (doc.cursors[coll] = { start: null, end: now(), next: null, done: false });
@@ -125,7 +226,7 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
             const { records, next } = await page(uid, connId, coll, cur);
             budget--;
             if (next && next === cur.next) throw new WhoopError('http', 'WHOOP repeated a page.', { retry: true });
-            const changed = absorb(doc, coll, records);
+            const { changed } = absorb(doc, coll, records);
             cur.next = next;
             if (!next) { cur.done = true; cur.scanEnd = cur.end; }
             if (changed) doc.proj.dirty = true;
@@ -133,13 +234,23 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
             wstore.save(uid, doc);
           }
         }
+        if (backfilled()) {
+          // The backfill was the first scan: the first poll is due 15 minutes after its end.
+          if (!doc.polledAt) doc.polledAt = Math.min(...COLLECTIONS.map(c => doc.cursors[c].end));
+          let polled = false;
+          if (pollDue()) { budget = await poll(uid, connId, doc, budget); polled = !doc.poll; }
+          // Webhook ids at once; pending scores and delete candidates with each completed poll.
+          budget = await settleIds(uid, connId, doc, budget, polled ? ['due', 'candidates', 'pending'] : ['due']);
+        }
+        if (!alive(uid, connId)) return;
         project(uid, connId, doc);
         note(uid, connId, { ok: true, info: { backfill: backfillLabel(doc) } });
       } catch (e) {
         if (!(e instanceof WhoopError)) throw e;
+        if (e.code === 'gone' || !alive(uid, connId)) return;
         // What was fetched before the failure is saved; apply it.
         if (doc.proj.dirty) { try { project(uid, connId, doc); } catch (pe) { console.error('whoop: projection', pe.message); } }
-        if (e.code !== 'reconnect' && e.code !== 'gone') note(uid, connId, { error: { msg: e.message, code: e.code }, info: { backfill: backfillLabel(doc) } });
+        if (e.code !== 'reconnect') note(uid, connId, { error: { msg: e.message, code: e.code }, info: { backfill: backfillLabel(doc) } });
         if (e.code === 'rate') throw e;
       }
     });

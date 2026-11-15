@@ -14,6 +14,7 @@
  *     body: { kg, heightM, maxHr, at },        // the last WHOOP body measurement seen
  *     obs: [{ id, kg, observedAt, day, hhmm }],// weight changes not yet in the profile
  *     proj: { dirty, version, at },            // the profile still needs this history applied
+ *     poll: { at, colls }, polledAt,           // the 15-minute poll in progress, the last one
  *   } */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,6 +34,7 @@ export function emptyDoc(whoopUser = null) {
     candidates: Object.fromEntries(COLLECTIONS.map(c => [c, []])),
     due: Object.fromEntries(COLLECTIONS.map(c => [c, []])),
     body: null, obs: [], proj: { dirty: false, version: 0, at: 0 },
+    poll: null, polledAt: 0,                  // a poll in progress, and when the last one began
   };
 }
 
@@ -47,6 +49,8 @@ function shape(d) {
   if (plain(d.body)) out.body = d.body;
   if (Array.isArray(d.obs)) out.obs = d.obs.filter(plain);
   if (plain(d.proj)) out.proj = { dirty: d.proj.dirty === true, version: Number(d.proj.version) || 0, at: Number(d.proj.at) || 0 };
+  if (plain(d.poll)) out.poll = d.poll;
+  if (Number.isFinite(d.polledAt)) out.polledAt = d.polledAt;
   return out;
 }
 

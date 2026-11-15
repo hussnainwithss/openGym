@@ -37,7 +37,9 @@ export function fakeWhoop({ userId = 4242 } = {}) {
   const byStart = (a, b) => String(b.start || b.created_at).localeCompare(String(a.start || a.created_at));
   const when = r => r.start || r.created_at;
 
-  w.fetchFn = async (url, { method = 'GET', headers: h = {}, body } = {}) => {
+  // Tests swap `handler` (the hub keeps the fetchFn it was given) to rewrite or refuse replies.
+  w.fetchFn = (url, o) => w.handler(url, o);
+  w.handler = async (url, { method = 'GET', headers: h = {}, body } = {}) => {
     if (w.notSentOnce) { w.notSentOnce = false; throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } }); }
     const u = new URL(url);
     const auth = (h.Authorization || '').replace('Bearer ', '');

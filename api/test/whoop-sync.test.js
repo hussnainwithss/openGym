@@ -79,17 +79,17 @@ test('a backfill cut off by a failure resumes after a restart with the same boun
   const again = await setup({ w, dataDir: first.dataDir, clock, connect: false });
   await again.sync.tick();
   const d = again.doc();
-  // the 60 sleeps before the fixed end, all of them; the newer ones belong to the poll, not here
-  assert.equal(Object.keys(d.records.sleep).length, 60);
+  // the backfill kept its fixed end and finished; the poll that follows brought the 3 newer ones
   assert.equal(d.cursors.sleep.end, end);
+  assert.equal(Object.keys(d.records.sleep).length, 63);
   assert.equal(d.cursors.sleep.done, true);
 });
 
 test('a listing that repeats its page token stops instead of looping', async () => {
   const w = fakeWhoop();
   history(w, 2);
-  const real = w.fetchFn;
-  w.fetchFn = async (url, o) => {
+  const real = w.handler;
+  w.handler = async (url, o) => {
     const r = await real(url, o);
     if (url.includes('/v2/activity/workout')) return { ...r, json: async () => ({ records: [], next_token: 'same' }) };
     return r;
@@ -138,4 +138,131 @@ test('a profile with no server document yet keeps its history pending and gets i
   await c.sync.tick();
   assert.equal(c.profile.S.n, 3);
   assert.equal(c.doc().proj.dirty, false);
+});
+
+/* ---- C4: the 15-minute poll ---- */
+
+const MIN = 60_000;
+async function backfilled(opts = {}) {
+  const c = await setup(opts);
+  await c.sync.tick();
+  assert.equal(c.doc().cursors.workout.done, true);
+  return c;
+}
+const workoutsIn = c => Object.keys(c.doc().records.workout);
+
+test('an edit and a deletion inside the window show on the next poll; a failed page deletes nothing', async () => {
+  const w = fakeWhoop();
+  const keep = rec.workout({ start: T0 - DAY, end: T0 - DAY + 3600_000 });
+  const gone = rec.workout({ start: T0 - 2 * DAY, end: T0 - 2 * DAY + 3600_000 });
+  w.workout.push(keep, gone);
+  const c = await backfilled({ w });
+  keep.score.strain = 15.5;
+  w.workout.splice(w.workout.indexOf(gone), 1);
+  // first, a poll whose workout listing fails: nothing becomes a delete candidate
+  w.failPage = coll => (coll === 'workout' ? 503 : null);
+  c.clock.t += 16 * MIN;
+  await c.sync.tick();
+  assert.deepEqual(c.doc().candidates.workout, []);
+  assert.ok(workoutsIn(c).includes(gone.id));
+  w.failPage = null;
+  c.clock.t += MIN;
+  await c.sync.tick();
+  assert.equal(c.doc().records.workout[keep.id].strain, 15.5);
+  assert.ok(!workoutsIn(c).includes(gone.id));
+});
+
+test('a listing that leaves out a record WHOOP still has does not delete it', async () => {
+  const w = fakeWhoop();
+  const r1 = rec.workout({ start: T0 - DAY, end: T0 - DAY + 3600_000 });
+  w.workout.push(r1);
+  const c = await backfilled({ w });
+  const real = w.handler;
+  w.handler = async (url, o) => {
+    const r = await real(url, o);
+    if (url.includes('/v2/activity/workout?')) { const d = await r.json(); return { ...r, json: async () => ({ ...d, records: d.records.filter(x => x.id !== r1.id) }) }; }
+    return r;
+  };
+  c.clock.t += 16 * MIN;
+  await c.sync.tick();
+  assert.ok(workoutsIn(c).includes(r1.id));
+  assert.deepEqual(c.doc().candidates.workout, []);
+});
+
+test('a delete candidate whose check fails is kept, and settled after a restart past the window', async () => {
+  const w = fakeWhoop();
+  const r1 = rec.workout({ start: T0 - 2.9 * DAY, end: T0 - 2.9 * DAY + 3600_000 });
+  w.workout.push(r1);
+  const c = await backfilled({ w });
+  w.workout.length = 0;
+  const real = w.handler;
+  let failById = true;
+  w.handler = async (url, o) => (failById && url.includes('/v2/activity/workout/') ? { status: 503, json: async () => ({}), headers: { get: () => null } } : real(url, o));
+  c.clock.t += 16 * MIN;
+  await c.sync.tick();
+  assert.deepEqual(c.doc().candidates.workout, [r1.id]);
+  failById = false;
+  const clock = { t: c.clock.t + 2 * DAY };
+  const again = await setup({ w, dataDir: c.dataDir, clock, connect: false });
+  await again.sync.tick();
+  assert.ok(!Object.keys(again.doc().records.workout).includes(r1.id));
+  assert.deepEqual(again.doc().candidates.workout, []);
+});
+
+test('after ten days off, the next poll brings in everything that happened meanwhile', async () => {
+  const c = await backfilled();
+  c.clock.t += 10 * DAY;
+  const during = rec.workout({ start: T0 + 2 * DAY, end: T0 + 2 * DAY + 3600_000 });
+  c.w.workout.push(during);
+  await c.sync.tick();
+  assert.ok(workoutsIn(c).includes(during.id));
+});
+
+test('a score still pending, older than the window, is asked for by id until it is scored', async () => {
+  const w = fakeWhoop();
+  const p = rec.workout({ start: T0 - 6 * DAY, end: T0 - 6 * DAY + 3600_000, state: 'PENDING_SCORE' });
+  w.workout.push(p);
+  const c = await backfilled({ w });
+  assert.deepEqual(c.doc().pending.workout, [p.id]);
+  Object.assign(p, rec.workout({ id: p.id, start: T0 - 6 * DAY, end: T0 - 6 * DAY + 3600_000 }));
+  c.clock.t += 16 * MIN;
+  await c.sync.tick();
+  assert.equal(c.doc().records.workout[p.id].st, 'scored');
+  assert.deepEqual(c.doc().pending.workout, []);
+});
+
+test('paused, or the Integrations module off: no request at all', async () => {
+  const c = await backfilled();
+  const before = c.w.calls.length;
+  c.profile.S = { modules: { integrations: false } };
+  c.clock.t += 16 * MIN;
+  await c.sync.tick();
+  c.profile.S = {};
+  c.h.update('u1', c.id, { paused: true });
+  c.clock.t += 16 * MIN;
+  await c.sync.tick();
+  assert.equal(c.w.calls.length, before);
+});
+
+test('a 429 on page two blocks every request until WHOOP’s reset, then the listing resumes without gaps', async () => {
+  const w = fakeWhoop();
+  history(w, 60);
+  w.pageSize = 25;
+  // let the cycle listing's first page through, then refuse
+  const real = w.handler;
+  let n = 0;
+  w.handler = async (url, o) => {
+    if (url.includes('/v2/cycle?') && ++n === 2) { w.limited = 1; w.resetSec = 120; }
+    return real(url, o);
+  };
+  const c = await setup({ w });
+  await c.sync.tick();
+  const asked = w.calls.length;
+  c.clock.t += 60_000;
+  await c.sync.tick();
+  assert.equal(w.calls.length, asked, 'asked WHOOP again before its reset');
+  c.clock.t += 61_000;
+  await c.sync.tick();
+  assert.equal(Object.keys(c.doc().records.cycle).length, 60);
+  assert.deepEqual(c.doc().candidates.cycle, []);
 });
