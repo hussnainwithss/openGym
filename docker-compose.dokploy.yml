@@ -1,0 +1,54 @@
+# openGym on Dokploy (fork): Dokploy → Create Service → Compose → this repository, compose path
+# `./docker-compose.dokploy.yml`. Setup steps: docs/SELF_HOSTING_DOKPLOY.md.
+#
+# Differences from docker-compose.yml, all because of how Dokploy deploys:
+#   - No `image:` lines: the images are always built from this repository (the published ghcr.io
+#     images do not have this fork's WHOOP integration), for the server's own CPU (arm64 on a Pi).
+#   - The data lives in a named volume, not ./data: Dokploy clones the repository afresh on every
+#     deploy, which would empty a folder inside it. A named volume also works with Dokploy's
+#     volume backups. BACK IT UP: users, passkeys, every profile, WHOOP history, uploads.
+#   - No published port: Dokploy's Traefik reaches `web` on port 80 through the domain set in
+#     Dokploy (Domains tab: service `web`, port 80).
+#   - Everything else comes from the Environment tab, which Dokploy writes to `.env` here.
+name: opengym
+
+services:
+  api:
+    build:
+      context: ./api
+      target: default
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - PORT=3000
+      - DATA_DIR=/data
+      # Reachable only through `web`, which overwrites X-Forwarded-For with the real peer.
+      - TRUST_PROXY=1
+    volumes:
+      - opengym-data:/data
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    expose:
+      - "80"
+    environment:
+      - NGINX_PORT=80
+      - BACKEND=api
+      - PORT=3000
+      - RESOLVER=127.0.0.11
+      # Behind a Cloudflare tunnel: set CF_CONNECTING_IP='$http_cf_connecting_ip' in the
+      # Environment tab (single quotes included) so the activity log records the real address.
+      - CF_CONNECTING_IP=${CF_CONNECTING_IP:-}
+      - BASE_PATH=
+      - MEDIA_UPLOAD_MAX=112m
+      - MCP_BACKEND=mcp
+      - MCP_PORT=3100
+
+volumes:
+  opengym-data:
