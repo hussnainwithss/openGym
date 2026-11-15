@@ -3460,7 +3460,7 @@ paths:
         - name: provider
           in: query
           required: true
-          schema: { type: string, enum: [strava] }
+          schema: { type: string, enum: [strava, whoop] }
       responses:
         '302': { description: To the service, or back to the app with `intg` and `error`. }
   /api/integrations/oauth/callback:

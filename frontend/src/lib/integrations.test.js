@@ -127,3 +127,19 @@ describe('the Strava card (#478)', () => {
     expect(cardState('strava', { ...u, offered: ['strava'], server: { connections: [{ provider: 'strava', status: 'attention' }] } })).toEqual({ status: 'attention', action: 'manage' })
   })
 })
+
+describe('the WHOOP card (fork)', () => {
+  it('reads only its own offer and its own connection, not Strava’s', async () => {
+    const { cardState, directory } = await import('./integrations.js')
+    const u = { user: { id: 'u' } }
+    expect(cardState('whoop', { ...u, offered: ['strava'] })).toBeNull()
+    expect(cardState('whoop', { ...u, offered: ['whoop', 'strava'], server: { connections: [{ provider: 'strava', status: 'connected' }] } })).toEqual({ status: 'off', action: 'connect' })
+    expect(cardState('whoop', { ...u, offered: ['whoop'], server: { connections: [{ provider: 'whoop', status: 'attention' }] } })).toEqual({ status: 'attention', action: 'manage' })
+    // With the Integrations module off, or in the offline build, the card is gone.
+    const ctx = { ...u, offered: ['whoop'], server: { connections: [] } }
+    const has = d => d.some(cat => cat.cards.some(c => c.id === 'whoop'))
+    expect(has(directory(ctx))).toBe(true)
+    expect(has(directory({ ...ctx, mod: id => id !== 'integrations' }))).toBe(false)
+    expect(has(directory({ ...ctx, offline: true }))).toBe(false)
+  })
+})

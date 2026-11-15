@@ -301,7 +301,7 @@ describe('the search lands on a row', () => {
     'gym-find: Current location', // a search result, not a setting
     'voice: Try it', // plays a sample
     'zepp: Install the watch app', // a link to the install guide
-    'integrations: Strava', 'integrations: openNutrition', // brand names, not translated: the Integrations page's own words find them
+    'integrations: Strava', 'integrations: WHOOP', 'integrations: openNutrition', // brand names, not translated: the Integrations page's own words find them
     'live: Effort', // reads "Effort (RIR)" once effort is on; "Effort per set" answers the word
   ])
   // The other way round (#1105): every row a page shows can be found, so a new row cannot slip

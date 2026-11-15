@@ -140,12 +140,14 @@ export default function IntegrationsPage({ android = false, ios = false }) {
   const dir = directory(ctx)
 
   const webhookCtx = { server, lan: !!config?.integrations?.lan, toast }
-  // Back from Strava's sign-in (api/integrations/routes.js): ?intg=strava&connected=1 or &error=…
+  // Back from Strava's or WHOOP's sign-in (api/integrations/routes.js): ?intg=<id>&connected=1 or &error=…
   const loc = useLocation()
   useEffect(() => {
     const q = new URLSearchParams(loc.search)
-    if (q.get('intg') !== 'strava') return
-    toast(q.get('connected') ? t('Strava connected. Your next workout goes up by itself.') : t(STRAVA_ERRORS[q.get('error')] || 'Strava could not be connected. Try again.'))
+    const intg = q.get('intg')
+    if (intg === 'whoop') toast(q.get('connected') ? 'WHOOP connected. Your history is on its way, this can take a while.' : WHOOP_ERRORS[q.get('error')] || 'WHOOP could not be connected. Try again.')
+    else if (intg === 'strava') toast(q.get('connected') ? t('Strava connected. Your next workout goes up by itself.') : t(STRAVA_ERRORS[q.get('error')] || 'Strava could not be connected. Try again.'))
+    else return
     server.load()
     nav(loc.pathname, { replace: true })
   }, [loc.search])
@@ -168,6 +170,11 @@ export default function IntegrationsPage({ android = false, ios = false }) {
         if (action === 'open') return infoSheet(card, t('Strava is off on this server. Register a Strava API app, then add strava to INTEGRATIONS and its STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET to the .env, and restart.'), INTEGRATIONS_DOCS + '#strava')
         if (action === 'connect') return startStrava(card)
         return stravaSheet((server.data?.connections || []).find(c => c.provider === 'strava'), webhookCtx)
+      case 'whoop':
+        if (status === 'server') return infoSheet(card, 'WHOOP data is pulled by your own openGym server, so it needs one. Connect this device to it in Account.')
+        if (action === 'open') return infoSheet(card, 'WHOOP is off on this server. Register a WHOOP developer app, then add whoop to INTEGRATIONS and its WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET to the .env, and restart.', INTEGRATIONS_DOCS + '#whoop')
+        if (action === 'connect') return startWhoop(card)
+        return whoopSheet((server.data?.connections || []).find(c => c.provider === 'whoop'), webhookCtx)
       case 'webdav': return webdavSheet()
       case 'calendar':
         if (status === 'server') return infoSheet(card, t('The calendar link is served by your own openGym server, so it needs one. Connect this device to it in Account.'))
@@ -186,7 +193,7 @@ export default function IntegrationsPage({ android = false, ios = false }) {
     // The health stores and the webhooks have more to say than a card holds.
     if (card.state.status === 'device' || card.state.status === 'server' || card.state.action === 'open' && card.id === 'webhook') return act(card)
     if (card.id === 'webhook') return card.state.action === 'connect' ? detailSheet(card, { act: () => act(card) }) : webhookListSheet(webhookCtx)
-    if (card.id === 'strava' && card.state.action === 'manage') return act(card)
+    if ((card.id === 'strava' || card.id === 'whoop') && card.state.action === 'manage') return act(card)
     if (card.id === 'webdav' && card.state.action === 'manage') return webdavSheet()
     if (card.id === 'calendar' && card.state.action === 'manage') return calendarSheet(setCalendarState)
     if (card.id === 'opennutrition' && card.state.action === 'manage') return nutritionSheet()
@@ -552,6 +559,67 @@ function StravaDetail({ close, conn: initial, server, toast }) {
     <div className="sect-b intg-acts">
       <ActRow icon="bolt" label={t('Check the connection')} disabled={busy} onClick={() => call('/api/integrations/test', {}, r => toast?.(r?.ok ? t('Strava is listening') : t('Test failed: {0}', r?.msg || '')))} />
       {trouble && <ActRow icon="reset" label={t('Reconnect')} disabled={busy} onClick={() => startStrava({ icon: 'figureRun', name: 'Strava', state: {} })} />}
+    </div>
+    <DangerRow label={t('Disconnect')} disabled={busy} onClick={disconnect} />
+  </>
+}
+
+/* ---------------- WHOOP (fork) ---------------- */
+
+const WHOOP_ERRORS = {
+  denied: 'WHOOP was not given access. Nothing was connected.',
+  state: 'That sign-in took too long or came from somewhere else. Start again from here.',
+  signin: 'Sign in to your server first, then connect WHOOP.',
+  off: 'WHOOP is off on this server.',
+  profile: 'WHOOP did not say whose account this is. Try again.',
+}
+
+// Like Strava: a trip to WHOOP and back to this server's address, from a browser with its session.
+function startWhoop(card) {
+  if (MOBILE) return infoSheet(card, 'Connect WHOOP once from openGym in a browser, signed in to your server. Your server then pulls your WHOOP data, and every device gets it.', INTEGRATIONS_DOCS + '#whoop')
+  window.location.assign(appBase().replace(/\/$/, '') + '/api/integrations/oauth/start?provider=whoop')
+}
+
+function whoopSheet(conn, ctx) {
+  if (!conn) return
+  sheet(close => <WhoopDetail close={close} conn={conn} {...ctx} />)
+}
+
+function WhoopDetail({ close, conn: initial, server, toast }) {
+  const [c, setC] = useState(initial)
+  const [busy, setBusy] = useState(false)
+  const call = async (path, body, after) => {
+    setBusy(true)
+    try {
+      const r = await api(path, { method: 'POST', body: JSON.stringify({ id: c.id, ...body }) })
+      if (r?.connection) setC(r.connection)
+      after?.(r)
+      server.load()
+    } catch (e) { toast?.(errText(e, 'Something went wrong')) }
+    setBusy(false)
+  }
+  const trouble = c.status === 'attention'
+  const disconnect = () => confirmSheet({
+    title: 'Disconnect WHOOP?',
+    message: 'Your server forgets the sign-in and stops pulling. Everything already imported stays in openGym.',
+    confirmText: t('Disconnect'), danger: true,
+    onConfirm: () => call('/api/integrations/disconnect', {}, () => { close(); toast?.('WHOOP disconnected') }),
+  })
+  return <>
+    <SheetHead icon="heart" title="WHOOP" status={statusOf(c)} />
+    <p className="intg-lead" translate="no">{c.label}</p>
+    <Section footer="Your server asks WHOOP for new data every 15 minutes, and at once when WHOOP tells it something changed.">
+      <Row icon="play" iconTint="var(--green)" title="Pulling" subtitle={c.paused ? 'Paused. Nothing is pulled until you switch it back on.' : null}>
+        <Switch aria-label="Pulling" checked={!c.paused} disabled={busy} onChange={v => call('/api/integrations/update', { paused: !v })} />
+      </Row>
+      {c.info?.backfill && c.info.backfill !== 'done' && <Row icon="download" iconTint="var(--blue)" title="Bringing in your history" value={c.info.backfill} />}
+      <Row icon="clock" iconTint="var(--blue)" title="Last sync" value={c.lastOk ? fmtAgo(c.lastOk) : t('Not yet')} />
+      {c.lastError && <Row icon="warning" iconTint={trouble ? 'var(--orange)' : 'var(--grey)'} title={<span className="intg-line">{c.lastError.msg}</span>}
+        subtitle={c.lastError.at ? fmtAgo(c.lastError.at) : null} />}
+    </Section>
+    <div className="sect-b intg-acts">
+      <ActRow icon="bolt" label={t('Check the connection')} disabled={busy} onClick={() => call('/api/integrations/test', {}, r => toast?.(r?.ok ? 'WHOOP answers' : 'Check failed: ' + (r?.msg || '')))} />
+      {trouble && <ActRow icon="reset" label={t('Reconnect')} disabled={busy} onClick={() => startWhoop({ icon: 'heart', name: 'WHOOP', state: {} })} />}
     </div>
     <DangerRow label={t('Disconnect')} disabled={busy} onClick={disconnect} />
   </>

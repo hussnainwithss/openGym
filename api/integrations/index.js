@@ -27,6 +27,7 @@ import { deriveKey, newId } from './crypto.js';
 import { detectEvents, eventData, envelope, testData, EVENTS } from './events.js';
 import { webhookProvider } from './providers/webhook.js';
 import { stravaProvider } from './providers/strava.js';
+import { whoopProvider } from './providers/whoop.js';
 
 const on = v => /^(1|true|yes|on)$/i.test(String(v || ''));
 
@@ -45,7 +46,7 @@ export const OAUTH_STATE_MS = 10 * 60_000;
 
 export function createIntegrations({ dataDir, secret, env = process.env, now = Date.now, transport = null, fetchFn = globalThis.fetch, version = 'dev' }) {
   const allowLan = on(env.INTEGRATIONS_ALLOW_LAN);
-  const all = { webhook: webhookProvider({ allowLan, transport, version }), strava: stravaProvider({ env, fetchFn, now }) };
+  const all = { webhook: webhookProvider({ allowLan, transport, version }), strava: stravaProvider({ env, fetchFn, now }), whoop: whoopProvider({ env, fetchFn, now }) };
   const ids = enabledIds(env, Object.keys(all)).filter(id => {
     if (all[id].configured(env)) return true;
     console.warn(`INTEGRATIONS: ${id} needs ${all[id].env.join(', ')}; left off`);
@@ -91,6 +92,11 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
   // A nonce is taken once, so a callback link cannot be replayed.
   const stateKey = secret && String(secret).length >= 16 ? crypto.createHmac('sha256', String(secret)).update('opengym-oauth-state v1').digest() : null;
   const usedNonces = new Map();
+  // A provider that wants a short state (WHOOP: exactly 8 characters) gets a random one held here,
+  // bound to the profile, the provider and the callback address. Lost on restart: start again.
+  const pendingStates = new Map();   // state -> { u, p, e, redirectUri }
+  const PENDING_MAX = 1000;
+  const shortState = () => crypto.randomBytes(6).toString('base64url');
   const signState = o => { const b = Buffer.from(JSON.stringify(o)).toString('base64url'); return b + '.' + crypto.createHmac('sha256', stateKey).update(b).digest('base64url'); };
   const readState = st => {
     if (!stateKey || typeof st !== 'string' || st.length > 600) return null;
@@ -120,7 +126,7 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
     });
   }
 
-  const fail = (status, message, code) => { throw Object.assign(new Error(message), { status, code }); };
+  const fail = (status, message, code, provider) => { throw Object.assign(new Error(message), { status, code, ...(provider ? { provider } : {}) }); };
   const off = () => fail(404, 'integrations are off on this server', 'off');
   const own = (uid, id) => {
     const rec = typeof id === 'string' ? store.get(uid, id) : null;
@@ -210,6 +216,14 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
       if (!p || p.kind !== 'oauth') fail(404, 'no such integration', 'missing');
       if (!stateKey) fail(503, 'the server secret is missing', 'secret');
       userLimit(uid, 'act');
+      if (p.stateLen === 8) {
+        for (const [k, v] of pendingStates) if (v.e <= now()) pendingStates.delete(k);
+        if (pendingStates.size >= PENDING_MAX) fail(429, 'too many sign-ins waiting, try again in a few minutes', 'rate');
+        let state = shortState();
+        while (pendingStates.has(state)) state = shortState();
+        pendingStates.set(state, { u: uid, p: p.id, e: now() + OAUTH_STATE_MS, redirectUri });
+        return p.authorizeUrl({ state, redirectUri });
+      }
       const state = signState({ u: uid, p: p.id, n: crypto.randomBytes(9).toString('base64url'), e: now() + OAUTH_STATE_MS });
       return p.authorizeUrl({ state, redirectUri });
     },
@@ -219,15 +233,28 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
      *  profile if the browser sent its cookie, which then has to be the state's. → { uid, connection } */
     async oauthFinish(query, sessionUid = null) {
       if (!active) off();
-      const st = readState(query?.state);
-      if (!st || typeof st.u !== 'string' || !(st.e > now())) fail(400, 'that sign-in link is old or not ours, start again', 'state');
-      if (sessionUid && sessionUid !== st.u) fail(403, 'signed in as someone else', 'state');
-      if (usedNonces.has(st.n)) fail(400, 'that sign-in link was used already', 'state');
-      for (const [n, e] of usedNonces) if (e <= now()) usedNonces.delete(n);
-      usedNonces.set(st.n, st.e);
+      const raw = query?.state;
+      let st, redirectUri;
+      if (typeof raw === 'string' && raw.length === 8) {
+        // Short state: looked up and taken at once, so it works one time only.
+        const pend = pendingStates.get(raw);
+        pendingStates.delete(raw);
+        if (!pend || !(pend.e > now())) fail(400, 'that sign-in link is old or not ours, start again', 'state');
+        if (sessionUid && sessionUid !== pend.u) fail(403, 'signed in as someone else', 'state', pend.p);
+        st = pend; redirectUri = pend.redirectUri;
+      } else {
+        st = readState(raw);
+        if (!st || typeof st.u !== 'string' || !(st.e > now())) fail(400, 'that sign-in link is old or not ours, start again', 'state');
+        if (sessionUid && sessionUid !== st.u) fail(403, 'signed in as someone else', 'state', st.p);
+        if (usedNonces.has(st.n)) fail(400, 'that sign-in link was used already', 'state', st.p);
+        for (const [n, e] of usedNonces) if (e <= now()) usedNonces.delete(n);
+        usedNonces.set(st.n, st.e);
+      }
       const p = providers[st.p];
       if (!p || p.kind !== 'oauth') fail(404, 'no such integration', 'missing');
-      const made = await p.callback(query || {});
+      let made;
+      try { made = await p.callback(query || {}, { redirectUri }); }
+      catch (e) { if (e && typeof e === 'object' && !e.provider) e.provider = p.id; throw e; }
       for (const old of store.list(st.u).filter(r => r.provider === p.id)) { store.remove(st.u, old.id); outbox.dropConnection(st.u, old.id); }
       const id = newId('c');
       const secrets = Object.fromEntries(Object.entries(made.secrets || {}).map(([k, v]) => [k, store.seal(st.u, id, k, v)]));
