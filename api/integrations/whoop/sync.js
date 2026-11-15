@@ -24,7 +24,7 @@ export const TICK_MS = 60_000;
 export const POLL_MS = 15 * 60_000;
 // Raised when what WHOOP data becomes in a profile changes (the projectors): the next run applies
 // the stored history again, once, without fetching anything. 2: Strength Trainer and recovery sports.
-export const PROJ_VERSION = 2;
+export const PROJ_VERSION = 3;
 export const PATHS = { cycle: '/v2/cycle', sleep: '/v2/activity/sleep', recovery: '/v2/recovery', workout: '/v2/activity/workout' };
 export const WINDOW_MS = 3 * 86_400_000;
 export const OVERLAP_MS = 3600_000;

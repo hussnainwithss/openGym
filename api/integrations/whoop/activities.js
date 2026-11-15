@@ -17,8 +17,8 @@ import { effectiveActivity } from '../../coach/core/whoop-activities.js';
 const SPORT = {
   running: 'run', 'track & field': 'run', 'cross country skiing': 'ski', skiing: 'ski', snowboarding: 'ski',
   cycling: 'ride', 'mountain biking': 'ride', spin: 'ride', 'assault bike': 'ride',
-  swimming: 'swim', hiking: 'hike', rucking: 'hike', walking: 'hike', rowing: 'row', kayaking: 'row', paddleboarding: 'row',
-  soccer: 'football', 'australian football': 'football', 'american football': 'football', rugby: 'football',
+  swimming: 'swim', hiking: 'hike', rucking: 'hike', 'hiking rucking': 'hike', walking: 'hike', rowing: 'row', kayaking: 'row', paddleboarding: 'row',
+  soccer: 'football', football: 'football', 'australian football': 'football', 'american football': 'football', rugby: 'football',
   tennis: 'racket', squash: 'racket', badminton: 'racket', 'table tennis': 'racket', pickleball: 'racket', padel: 'racket',
   basketball: 'ball', volleyball: 'ball', baseball: 'ball', softball: 'ball', hockey: 'ball', 'ice hockey': 'ball', 'field hockey': 'ball', handball: 'ball', lacrosse: 'ball', netball: 'ball', cricket: 'ball',
   climbing: 'climb', 'rock climbing': 'climb', bouldering: 'climb',
@@ -38,7 +38,7 @@ export const RECOVERY = {
   massage: { kind: 'massage' }, 'massage therapy': { kind: 'massage' },
 };
 // Names WHOOP gives that read better as something else.
-const TITLE = { 'weightlifting msk': 'Strength Trainer' };
+const TITLE = { 'weightlifting msk': 'Strength Trainer', hiit: 'HIIT' };
 /** WHOOP's sport name as these tables key it: 'weightlifting_msk', 'warm-bath' → 'weightlifting msk', 'warm bath'. */
 export const sportKey = name => String(name || '').toLowerCase().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
 

@@ -417,7 +417,7 @@ test('deleting an account removes its WHOOP files even when WHOOP is switched of
 
 /* ---- whoop-activities A1: WHOOP workouts become activities ---- */
 
-const { whoopActivityId } = await import('../integrations/whoop/activities.js');
+const { whoopActivityId, activityOf } = await import('../integrations/whoop/activities.js');
 
 test('a WHOOP run becomes one activity with its WHOOP details, written once and never again', async () => {
   const w = fakeWhoop();
@@ -786,4 +786,12 @@ test('a profile imported with the old mapping is corrected on the next run, with
   assert.equal(S.recoverySessions[ib].kind, 'other');
   assert.equal(effectiveActivity(S, ix, S.activities[ix]).note, 'mine');
   assert.equal(S.recoverySessions?.[ix], undefined);
+});
+
+test('WHOOP names that read as a known sport map to it: hiking_rucking, football; HIIT keeps its capitals', () => {
+  const r = (sport) => activityOf({ id: 'x', start: T0, end: T0 + 30 * MIN, off: 0, sport });
+  assert.equal(r('hiking_rucking').sport, 'hike');
+  assert.equal(r('football').sport, 'football');
+  assert.equal(r('hiit').title, 'HIIT');
+  assert.equal(r('elliptical').title, 'Elliptical');
 });
