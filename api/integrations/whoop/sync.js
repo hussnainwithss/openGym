@@ -213,7 +213,16 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
         if (S?.modules?.integrations === false) return;
       }
       let doc = wstore.load(uid);
-      if (doc.whoopUser == null) doc.whoopUser = conn.info.whoopUser || null;
+      const who = conn.info.whoopUser || null;
+      if (doc.whoopUser == null) doc.whoopUser = who;
+      else if (who && doc.whoopUser !== who) {
+        // Reconnected with another WHOOP account: its history starts over, never mixed with the
+        // last one's. The projections then clear the old account's synced days (D20); imported
+        // activities and weigh-ins stay (D12).
+        doc = emptyDoc(who);
+        doc.proj.dirty = true;
+        wstore.save(uid, doc);
+      }
       let budget = MAX_PAGES;
       const backfilled = () => COLLECTIONS.every(c => doc.cursors[c]?.done);
       const waiting = () => COLLECTIONS.some(c => doc.due[c].length);

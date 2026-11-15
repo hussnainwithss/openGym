@@ -266,3 +266,30 @@ test('a 429 on page two blocks every request until WHOOP’s reset, then the lis
   assert.equal(Object.keys(c.doc().records.cycle).length, 60);
   assert.deepEqual(c.doc().candidates.cycle, []);
 });
+
+/* ---- C5: who the history belongs to ---- */
+
+test('Reconnect with the same WHOOP account keeps the history; another account starts over', async () => {
+  const w = fakeWhoop();
+  history(w, 3);
+  const c = await backfilled({ w });
+  const reconnect = async () => {
+    const st = new URL(c.h.oauthStart('u1', 'whoop', CB)).searchParams.get('state');
+    await c.h.oauthFinish({ state: st, code: 'good' }, 'u1');
+  };
+  await reconnect();
+  const asked = w.calls.length;
+  await c.sync.tick();
+  // same account: no second backfill
+  assert.equal(w.calls.length, asked);
+  assert.equal(Object.keys(c.doc().records.cycle).length, 3);
+  // a different account on the same profile
+  w.userId = 777;
+  w.cycle.length = 0;
+  w.cycle.push(rec.cycle({ id: 9001, start: T0 - DAY }));
+  await reconnect();
+  await c.sync.tick();
+  const d = c.doc();
+  assert.equal(d.whoopUser, '777');
+  assert.deepEqual(Object.keys(d.records.cycle), ['9001']);
+});
