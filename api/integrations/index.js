@@ -46,6 +46,13 @@ export function enabledIds(env, known) {
 }
 
 export const OAUTH_STATE_MS = 10 * 60_000;
+export const WEBHOOK_SKEW_MS = 5 * 60_000;
+// WHOOP webhook types → the collection whose record to fetch again.
+const WEBHOOK_TYPES = {
+  'workout.updated': 'workout', 'workout.deleted': 'workout',
+  'sleep.updated': 'sleep', 'sleep.deleted': 'sleep',
+  'recovery.updated': 'recovery', 'recovery.deleted': 'recovery',
+};
 
 export function createIntegrations({ dataDir, secret, env = process.env, now = Date.now, transport = null, fetchFn = globalThis.fetch, version = 'dev' }) {
   const allowLan = on(env.INTEGRATIONS_ALLOW_LAN);
@@ -90,6 +97,7 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
   const deps = {};
   const projectors = [];
   const whoopStore = createWhoopStore({ dataDir });
+  const seenTraces = new Map();   // WHOOP webhook trace ids already taken
   const whoopSync = whoop ? createWhoopSync({ client: whoop, conns: store, wstore: whoopStore, now, deps, projectors }) : null;
 
   // What a provider may do besides reading its secrets: store refreshed ones (an OAuth token that
@@ -326,6 +334,47 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
       store.removeUser(uid);
       outbox.dropUser(uid);
     },
+
+    /** WHOOP's webhook (POST /api/integrations/whoop/webhook), raw body and headers.
+     *  The signature is base64(HMAC-SHA256(client secret, timestamp header + raw body)); the
+     *  timestamp must be within five minutes. A valid event only names an id to fetch again, so a
+     *  replayed or forged one cannot put data in. → { ok } or { ok: false, status }. */
+    whoopWebhook: whoop ? (raw, headers) => {
+      const sig = String(headers['x-whoop-signature'] || '');
+      const ts = String(headers['x-whoop-signature-timestamp'] || '');
+      if (!/^\d{10,16}$/.test(ts) || !sig || sig.length > 200) return { ok: false, status: 401 };
+      if (Math.abs(now() - Number(ts)) > WEBHOOK_SKEW_MS) return { ok: false, status: 401 };
+      const want = crypto.createHmac('sha256', providers.whoop.clientSecret).update(Buffer.concat([Buffer.from(ts), raw])).digest();
+      const got = Buffer.from(sig, 'base64');
+      if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) return { ok: false, status: 401 };
+      let ev;
+      try { ev = JSON.parse(raw.toString('utf8')); } catch { return { ok: false, status: 400 }; }
+      const coll = WEBHOOK_TYPES[ev?.type];
+      const id = typeof ev?.id === 'string' ? ev.id.toLowerCase() : '';
+      // An event type we do not use is acknowledged, as WHOOP asks.
+      if (!coll) return { ok: true };
+      if (!Number.isSafeInteger(ev.user_id) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) return { ok: false, status: 400 };
+      const trace = typeof ev.trace_id === 'string' ? ev.trace_id.slice(0, 80) : null;
+      if (trace) {
+        if (seenTraces.has(trace)) return { ok: true };
+        seenTraces.set(trace, now());
+        if (seenTraces.size > 2000) seenTraces.delete(seenTraces.keys().next().value);
+      }
+      // Whose WHOOP account is it: every profile connected with that WHOOP user id.
+      for (const u of deps.users ? deps.users() : []) {
+        const conn = store.list(u.id).find(r => r.provider === 'whoop' && r.info.whoopUser === String(ev.user_id));
+        if (!conn) continue;
+        if (coll === 'recovery') {
+          // A recovery event names its sleep; recovery is read through the sleep's cycle.
+          let cyc = null;
+          try { cyc = whoopStore.load(u.id).sleepCycle[id] || null; } catch { /* unreadable: fetch the sleep */ }
+          if (cyc) whoopStore.addDue(u.id, 'recovery', cyc);
+          else whoopStore.addDue(u.id, 'sleep', id);
+        } else whoopStore.addDue(u.id, coll, id);
+        whoopSync.runOne(u.id, conn.id).catch(e => console.error('whoop: webhook run', e.message));
+      }
+      return { ok: true };
+    } : null,
 
     /** server.js: the users, and the profile reader and writer (writeStateAs), once they exist. */
     attach({ users, readState, writeState } = {}) { Object.assign(deps, { users, readState, writeState }); },

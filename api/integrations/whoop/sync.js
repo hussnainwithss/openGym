@@ -46,6 +46,10 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
     return rec;
   };
 
+  // Every save first folds in the ids a webhook named meanwhile; all synchronous, so a webhook
+  // cannot write between the merge and the save.
+  const save = (uid, doc) => { wstore.takeDue(uid, doc); wstore.save(uid, doc); wstore.clearDue(uid); };
+
   function note(uid, connId, patch) {
     if (!alive(uid, connId)) return;
     conns.update(uid, connId, r => {
@@ -108,16 +112,22 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
           if (budget <= 0) return budget;
           const got = await byId(uid, connId, coll, k);
           budget--;
-          if (got.gone) { if (drop(doc, coll, k)) doc.proj.dirty = true; }
+          // A sleep named by a webhook may come with a new or deleted recovery: check its cycle's.
+          const recoveryOf = () => {
+            const cyc = coll === 'sleep' && list === 'due' ? (doc.records.sleep[k]?.cycle || doc.sleepCycle[k]) : null;
+            if (cyc && !doc.due.recovery.includes(cyc)) doc.due.recovery.push(cyc);
+          };
+          if (got.gone) { recoveryOf(); if (drop(doc, coll, k)) doc.proj.dirty = true; }
           else {
             const { changed } = absorb(doc, coll, [got.record]);
             if (changed) doc.proj.dirty = true;
+            recoveryOf();
             const i = doc[list][coll].indexOf(k);
             // still pending stays on the pending list; anything else is settled
             if (i >= 0 && !(list === 'pending' && doc.records[coll][k]?.st === 'pending')) doc[list][coll].splice(i, 1);
           }
           if (!alive(uid, connId)) throw new WhoopError('gone', 'Disconnected.');
-          wstore.save(uid, doc);
+          save(uid, doc);
         }
       }
     }
@@ -144,7 +154,7 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
         p.next = next;
         if (!next) p.done = true;
         if (!alive(uid, connId)) throw new WhoopError('gone', 'Disconnected.');
-        wstore.save(uid, doc);
+        save(uid, doc);
       }
       if (!p.done) return budget;
     }
@@ -161,7 +171,7 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
     }
     doc.polledAt = doc.poll.at;
     doc.poll = null;
-    wstore.save(uid, doc);
+    save(uid, doc);
     return budget;
   }
 
@@ -192,7 +202,7 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
     }
     if (!alive(uid, connId)) return false;
     doc.proj = { ...doc.proj, dirty: false, at: now() };
-    wstore.save(uid, doc);
+    save(uid, doc);
     return true;
   }
 
@@ -221,8 +231,9 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
         // activities and weigh-ins stay (D12).
         doc = emptyDoc(who);
         doc.proj.dirty = true;
-        wstore.save(uid, doc);
+        save(uid, doc);
       }
+      wstore.takeDue(uid, doc);
       let budget = MAX_PAGES;
       const backfilled = () => COLLECTIONS.every(c => doc.cursors[c]?.done);
       const waiting = () => COLLECTIONS.some(c => doc.due[c].length);
@@ -240,7 +251,7 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
             if (!next) { cur.done = true; cur.scanEnd = cur.end; }
             if (changed) doc.proj.dirty = true;
             if (!alive(uid, connId)) return;
-            wstore.save(uid, doc);
+            save(uid, doc);
           }
         }
         if (backfilled()) {

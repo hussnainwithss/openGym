@@ -854,7 +854,7 @@ const clearCookie = COOKIE === LEGACY_COOKIE
 // Authorization header is the only credential the route reads, and no browser attaches one.
 // The connector's OAuth registration and token exchange (oauth.js) are called by the assistant's
 // own server: the code and verifier in the body are the credential, and no cookie is read.
-const CSRF_EXEMPT = new Set(['POST /api/oauth/register', 'POST /api/oauth/token', 'POST /api/oauth/revoke', 'POST /api/pair/redeem', 'POST /api/watch/redeem', 'POST /api/watch/box', 'POST /api/oidc/app/redeem', 'PUT /api/token/data']);
+const CSRF_EXEMPT = new Set(['POST /api/oauth/register', 'POST /api/oauth/token', 'POST /api/oauth/revoke', 'POST /api/pair/redeem', 'POST /api/watch/redeem', 'POST /api/watch/box', 'POST /api/oidc/app/redeem', 'PUT /api/token/data', 'POST /api/integrations/whoop/webhook']);
 // The routes that answer to the credential in the body and never to a Bearer. No Bearer is the
 // credential that acts there, so none buys the shortcut below: any valid token would do, the
 // attacker's own included.
@@ -1028,6 +1028,21 @@ function readBody(req) {
     // A browser hanging up mid-body — which is what pagehide does to an in-flight sync — is not
     // the caller getting a request wrong, it is nobody being left to answer. Marked so the
     // catch-all at the bottom says one line instead of a stack trace and a 500 into a dead socket.
+    req.on('error', e => reject(Object.assign(e, { clientGone: true })));
+  });
+}
+// The raw bytes of a small body, unparsed: for a sender that signs them (WHOOP's webhook), where
+// the signature has to be checked on exactly what arrived. Same cap handling as readBody.
+function readRaw(req, max) {
+  return new Promise((resolve, reject) => {
+    let size = 0, over = false; const chunks = [];
+    req.on('data', d => {
+      size += d.length;
+      if (over) { if (size > 2 * max) req.destroy(); return; }
+      if (size > max) { over = true; chunks.length = 0; reject(new HttpError(413, 'body too large')); return; }
+      chunks.push(d);
+    });
+    req.on('end', () => { if (!over) resolve(Buffer.concat(chunks)); });
     req.on('error', e => reject(Object.assign(e, { clientGone: true })));
   });
 }
@@ -3608,7 +3623,7 @@ const routes = {
   /* ---------- integrations ---------- */
   // integrations/routes.js, handed the same helpers. With INTEGRATIONS unset they answer an empty
   // list (GET) or 404 "off", so the routes exist on every server and the app can tell.
-  ...integrationRoutes({ json, readBody, readSession, hub: integrations, audit, origin: ORIGIN }),
+  ...integrationRoutes({ json, readBody, readRaw, readSession, hub: integrations, audit, origin: ORIGIN }),
 
   /* ---------- trainers, gym leads, studios ---------- */
   // trainers/routes.js. Every decision about another profile is permissions.js; with TRAINERS

@@ -3476,6 +3476,32 @@ paths:
         - { name: error, in: query, schema: { type: string } }
       responses:
         '302': { description: Back to the app. }
+  /api/integrations/whoop/webhook:
+    post:
+      tags: [integrations]
+      operationId: integrationsWhoopWebhook
+      summary: WHOOP tells the server a record changed (fork)
+      description: Called by WHOOP, not by the app, so it takes no session. The body is checked against `X-WHOOP-Signature` (base64 HMAC-SHA256 with the WHOOP app's client secret over `X-WHOOP-Signature-Timestamp` followed by the raw body) and the timestamp must be within five minutes. A valid event only names a record the server then fetches from WHOOP again; a repeated `trace_id` is ignored. 404 when WHOOP is not switched on.
+      security: []
+      parameters:
+        - { name: X-WHOOP-Signature, in: header, required: true, schema: { type: string } }
+        - { name: X-WHOOP-Signature-Timestamp, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id: { type: integer }
+                id: { type: string, format: uuid }
+                type: { type: string, enum: [workout.updated, workout.deleted, sleep.updated, sleep.deleted, recovery.updated, recovery.deleted] }
+                trace_id: { type: string }
+      responses:
+        '204': { description: Taken. }
+        '401': { description: Bad or stale signature. }
+        '404': { description: WHOOP is off on this server. }
+        '413': { description: Body over 8 KB. }
   /api/integrations/log:
     get:
       tags: [integrations]

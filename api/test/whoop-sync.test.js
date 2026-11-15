@@ -293,3 +293,53 @@ test('Reconnect with the same WHOOP account keeps the history; another account s
   assert.equal(d.whoopUser, '777');
   assert.deepEqual(Object.keys(d.records.cycle), ['9001']);
 });
+
+/* ---- C6: WHOOP's webhook ---- */
+
+import crypto from 'node:crypto';
+const sign = (raw, ts, secret = 'wsecret') => crypto.createHmac('sha256', secret).update(ts + raw).digest('base64');
+function deliver(c, ev, { ts = String(c.clock.t), secret } = {}) {
+  const raw = JSON.stringify(ev);
+  return c.h.whoopWebhook(Buffer.from(raw), { 'x-whoop-signature': sign(raw, ts, secret), 'x-whoop-signature-timestamp': ts });
+}
+const settle = () => new Promise(r => setTimeout(r, 30));
+
+test('a signed webhook fetches the named record at once; a bad signature, a stale one or a replay does nothing', async () => {
+  const w = fakeWhoop();
+  const old = rec.workout({ start: T0 - 40 * DAY, end: T0 - 40 * DAY + 3600_000 });
+  w.workout.push(old);
+  const c = await backfilled({ w });
+  old.score.strain = 19.9;
+  const ev = { user_id: 4242, id: old.id, type: 'workout.updated', trace_id: 'tr-1' };
+  const asked = w.calls.length;
+  assert.deepEqual(deliver(c, ev, { secret: 'nope' }), { ok: false, status: 401 });
+  assert.deepEqual(deliver(c, ev, { ts: String(c.clock.t - 6 * MIN) }), { ok: false, status: 401 });
+  await settle();
+  assert.equal(w.calls.length, asked);
+  assert.deepEqual(deliver(c, ev), { ok: true });
+  await settle();
+  assert.equal(c.doc().records.workout[old.id].strain, 19.9);
+  const after = w.calls.length;
+  assert.deepEqual(deliver(c, ev), { ok: true });   // the same trace again
+  await settle();
+  assert.equal(w.calls.length, after);
+  // another WHOOP account's event touches nobody
+  assert.deepEqual(deliver(c, { ...ev, user_id: 1, trace_id: 'tr-2' }), { ok: true });
+  await settle();
+  assert.equal(w.calls.length, after);
+});
+
+for (const order of [['recovery.deleted', 'sleep.deleted'], ['sleep.deleted', 'recovery.deleted']]) {
+  test(`a deleted sleep and its recovery leave the store, events in the order ${order.join(' then ')}`, async () => {
+    const w = fakeWhoop();
+    history(w, 1, { from: T0 - 30 * DAY });
+    const c = await backfilled({ w });
+    const sl = w.sleep[0], cyc = String(w.cycle[0].id);
+    assert.ok(c.doc().records.recovery[cyc]);
+    w.sleep.length = 0; w.recovery.length = 0;
+    for (const [i, type] of order.entries()) { deliver(c, { user_id: 4242, id: sl.id, type, trace_id: 'd' + i }); await settle(); }
+    const d = c.doc();
+    assert.equal(d.records.sleep[sl.id], undefined);
+    assert.equal(d.records.recovery[cyc], undefined);
+  });
+}

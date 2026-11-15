@@ -57,6 +57,8 @@ function shape(d) {
 export function createWhoopStore({ dataDir }) {
   const dir = path.join(dataDir, 'whoop');
   const fileOf = uid => path.join(dir, 'u-' + safeUid(uid) + '.json');
+  const dueOf = uid => path.join(dir, 'u-' + safeUid(uid) + '.due.json');
+  const DUE_MAX = 500;
 
   return {
     fileOf,
@@ -74,6 +76,34 @@ export function createWhoopStore({ dataDir }) {
       fs.mkdirSync(dir, { recursive: true });
       atomicWrite(fileOf(uid), JSON.stringify(doc), 0o600);
     },
-    remove(uid) { try { fs.unlinkSync(fileOf(uid)); } catch { /* none */ } },
+    remove(uid) {
+      for (const f of [fileOf(uid), dueOf(uid)]) { try { fs.unlinkSync(f); } catch { /* none */ } }
+    },
+    // Ids a webhook named, in a small file of their own: a webhook answers at once and must not
+    // wait for (or race) a sync run holding the history. A run folds them in synchronously
+    // (takeDue then save), so nothing is lost between the two.
+    addDue(uid, coll, key) {
+      const d = readDue(uid);
+      if (!d[coll].includes(key)) d[coll].push(key);
+      if (d[coll].length > DUE_MAX) d[coll].splice(0, d[coll].length - DUE_MAX);
+      fs.mkdirSync(dir, { recursive: true });
+      atomicWrite(dueOf(uid), JSON.stringify(d), 0o600);
+    },
+    /** The webhook ids waiting, merged into `doc.due` (clearDue after `doc` is saved). */
+    takeDue(uid, doc) {
+      const d = readDue(uid);
+      let n = 0;
+      for (const c of COLLECTIONS) for (const k of d[c]) if (!doc.due[c].includes(k)) { doc.due[c].push(k); n++; }
+      return n;
+    },
+    clearDue(uid) { try { fs.unlinkSync(dueOf(uid)); } catch { /* none */ } },
   };
+  function readDue(uid) {
+    const out = Object.fromEntries(COLLECTIONS.map(c => [c, []]));
+    try {
+      const d = JSON.parse(fs.readFileSync(dueOf(uid), 'utf8'));
+      for (const c of COLLECTIONS) if (Array.isArray(d?.[c])) out[c] = d[c].filter(x => typeof x === 'string').slice(-DUE_MAX);
+    } catch { /* none yet, or unreadable: a poll catches what it named */ }
+    return out;
+  }
 }

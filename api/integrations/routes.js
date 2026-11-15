@@ -4,7 +4,7 @@
  * looked up in the caller's own file, so another profile's id is simply "no such connection".
  * Documented in api/openapi.yaml (tag Integrations). */
 
-export function integrationRoutes({ json, readBody, readSession, hub, audit = () => {}, origin = 'http://localhost:8080' }) {
+export function integrationRoutes({ json, readBody, readRaw = null, readSession, hub, audit = () => {}, origin = 'http://localhost:8080' }) {
   // OAuth (Strava): the browser goes to the provider and comes back here; both answers are
   // redirects, the second back to Settings → Integrations with how it went in the query.
   const base = String(origin).replace(/\/$/, '');
@@ -87,6 +87,16 @@ export function integrationRoutes({ json, readBody, readSession, hub, audit = ()
         // Only WHOOP uses an 8-character state; a state we never issued names no provider.
         back(res, { intg: e.provider || (String(q.state || '').length === 8 ? 'whoop' : 'strava'), error: e.code || 'error' });
       }
+    },
+
+    // WHOOP's webhook: no session, the signature over the raw body is the credential. The answer
+    // says nothing about why a delivery was refused.
+    'POST /api/integrations/whoop/webhook': async (req, res) => {
+      if (!hub.whoopWebhook || !readRaw) return json(res, 404, { error: 'not found' });
+      const raw = await readRaw(req, 8192);
+      const out = hub.whoopWebhook(raw, req.headers);
+      if (out.ok) { res.writeHead(204); return res.end(); }
+      json(res, out.status || 401, { error: 'refused' });
     },
 
     'GET /api/integrations/log': guard(async (req, res, user) => {
