@@ -515,3 +515,12 @@ test('the server’s week streak leaves out a WHOOP session deleted in WHOOP', a
   assert.equal(streakWalk(S, '2026-11-11').thisWeekDone, true);
   assert.equal(streakWalk({ ...S, whoopActs: { wX: { gone: 1, _ts: 2 } } }, '2026-11-11').thisWeekDone, false);
 });
+
+test('the server’s week streak leaves out a WHOOP strength session the person skipped', async () => {
+  const { streakWalk } = await import('../coach/core/streak.js');
+  const S = { weekStart: 1, activityStreak: true, workouts: [], whoopStrength: 'skip',
+    activities: { wL: { d: '2026-11-10', sport: 'other', min: 45, at: Date.UTC(2026, 10, 10, 7), durMs: 45 * MIN, src: 'whoop', st: 1, wu: '00000000-0000-4000-8000-000000000010', _ts: 1 } } };
+  // no workout beside it: the default does not apply, it counts
+  assert.equal(streakWalk(S, '2026-11-11').thisWeekDone, true);
+  assert.equal(streakWalk({ ...S, whoopChoice: { wL: { ov: 'skip', _ts: 2 } } }, '2026-11-11').thisWeekDone, false);
+});

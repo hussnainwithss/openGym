@@ -218,7 +218,7 @@ function MusclesCard({ S, planFocus = false }) {
   const workouts = S.workouts
   const bodyweightKg = useMemo(() => profileBodyweightKg(S), [S.bodyweight, S.unit])
   // Runs and matches (lib/activities.js) load the muscles they use, next to the workouts.
-  const fatigue = useMemo(() => fatigueOf(workouts, now, { bodyweightKg, unit: S.unit, activities: activityStimuli(S, now) }), [workouts, now, bodyweightKg, S.unit, S.activities, S.activityRecovery]) // eslint-disable-line react-hooks/exhaustive-deps
+  const fatigue = useMemo(() => fatigueOf(workouts, now, { bodyweightKg, unit: S.unit, activities: activityStimuli(S, now) }), [workouts, now, bodyweightKg, S.unit, S.activities, S.whoopActs, S.whoopChoice, S.whoopStrength, S.activityRecovery]) // eslint-disable-line react-hooks/exhaustive-deps
   const strength = useMemo(() => strengthOf(workouts, now, { bodyweightKg, unit: S.unit }), [workouts, now, bodyweightKg, S.unit])
   const muscleExercises = useMemo(() => (sel ? strengthExerciseRowsForMuscle(S, now, sel) : []), [S, now, sel, lang])
   const lastTrained = useMemo(() => latestMuscleTraining(workouts), [workouts])

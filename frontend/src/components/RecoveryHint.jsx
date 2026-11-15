@@ -24,7 +24,7 @@ export default function RecoveryHint({ S }) {
     const bw = lastBW(S)
     const bodyweightKg = bw && bw.w > 0 ? (S.unit === 'lb' ? bw.w * LB_TO_KG : bw.w) : undefined
     return recoveryHint(S, { now, today, fatigue: fatigueOf(S.workouts, now, { bodyweightKg, unit: S.unit, activities: activityStimuli(S, now) }) })
-  }, [S.workouts, S.activities, S.activityRecovery, S.recoveryHint, S.recoveryHintDay, S.active, S.week, S.dayPlan, S.queue, S.routines, S.unit, today, hour]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [S.workouts, S.activities, S.whoopActs, S.whoopChoice, S.whoopStrength, S.activityRecovery, S.recoveryHint, S.recoveryHintDay, S.active, S.week, S.dayPlan, S.queue, S.routines, S.unit, today, hour]) // eslint-disable-line react-hooks/exhaustive-deps
   const text = hintText(hint, today)
   if (!text) return null
   // Put away for today, said so, with a way back: the card returns tomorrow on its own.

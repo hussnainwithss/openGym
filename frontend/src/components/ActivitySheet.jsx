@@ -5,7 +5,7 @@ import { t } from '../lib/i18n.js'
 import { fmtDate, fmtNum, todayISO, uid } from '../lib/format.js'
 import { NOTE_MAX } from '../lib/history.js'
 import { tappable, useSheetKeyboard } from '../lib/use-sheet-keyboard.js'
-import { SPORTS, SPORT_LABEL, SPORT_ICON, SPORT_PRESETS, ACTIVITY_MIN_MAX, activitiesOf, withActivity, activityName } from '../lib/activities.js'
+import { SPORTS, SPORT_LABEL, SPORT_ICON, SPORT_PRESETS, ACTIVITY_MIN_MAX, activitiesOf, withActivity, activityName, withChoice, whoopForWorkout } from '../lib/activities.js'
 import DateField from './DateField.jsx'
 import Icon from './Icon.jsx'
 import { Button, Stepper } from './ui.jsx'
@@ -19,6 +19,7 @@ const SOURCE_LINE = {
   ah: 'From Apple Health',
   import: 'From an import',
   or: 'From openRunning',
+  whoop: 'From WHOOP',
 }
 
 // Distances in the profile's unit: km, or miles next to lb.
@@ -29,7 +30,8 @@ function ActivityLog({ id = null, day = null, close }) {
   const S = useStore(s => s.S)
   const update = useStore(s => s.update)
   const toast = useUI(s => s.toast)
-  const had = id ? activitiesOf(S).find(a => a.id === id) : null
+  // `all`: a WHOOP session merged into a workout or skipped opens here too, to change that.
+  const had = id ? activitiesOf(S, { all: true }).find(a => a.id === id) : null
   const [sport, setSport] = useState(had?.sport || 'run')
   const [min, setMin] = useState(had?.min || SPORT_PRESETS[1])
   const [d, setD] = useState(had?.d || day || todayISO())
@@ -53,6 +55,8 @@ function ActivityLog({ id = null, day = null, close }) {
       {had && SOURCE_LINE[had.src] ? t(SOURCE_LINE[had.src]) + '. ' : ''}
       {t('Sport outside the gym. It shows in your history and calendar and tires the muscles it used, but adds no sets.')}
     </div>
+    {had?.src === 'whoop' && <WhoopFacts a={had} />}
+    {had?.st === 1 && <WhoopChoice a={had} />}
     <div className="chips rec-kinds" role="radiogroup" aria-label={t('Sport')} style={{ margin: '0 0 12px', flexWrap: 'wrap' }}>
       {SPORTS.map(k => <button key={k} type="button" role="radio" aria-checked={sport === k}
         className={'chip nocap ichip' + (sport === k ? ' on' : '')} onClick={() => setSport(k)}>
@@ -74,6 +78,49 @@ function ActivityLog({ id = null, day = null, close }) {
     <Button variant="primary" icon="check" onClick={save} disabled={!(min >= 1)}>{t('Save')}</Button>
     {had && <><div style={{ height: 8 }} /><Button variant="ghost" icon="trash" onClick={remove}>{t('Remove')}</Button></>}
   </>
+}
+
+// WHOOP's own numbers for a session (fork): strain, heart rate, energy.
+const whoopFacts = a => [
+  a.strain != null ? 'Strain ' + fmtNum(Math.round(a.strain * 10) / 10) : null,
+  a.hr != null ? 'Avg HR ' + Math.round(a.hr) : null,
+  a.hrMax != null ? 'Max HR ' + Math.round(a.hrMax) : null,
+  a.kj != null ? Math.round(a.kj / 4.184) + ' kcal' : null,
+].filter(Boolean).join(' · ')
+
+function WhoopFacts({ a }) {
+  const line = whoopFacts(a)
+  return line ? <div className="small" style={{ marginBottom: 12 }}>{line}</div> : null
+}
+
+// A WHOOP strength session next to a workout logged in openGym (D21): keep it as an activity,
+// merge it into the workout (its WHOOP numbers show there), or skip it. "Default" goes back to
+// what Settings → WHOOP says for new ones.
+const CHOICE_LABEL = { keep: 'Keep as activity', merge: 'Merge into workout', skip: 'Skip' }
+function WhoopChoice({ a }) {
+  const update = useStore(s => s.update)
+  const set = ov => update(s => { s.whoopChoice = withChoice(s.whoopChoice, a.id, ov) })
+  return <>
+    <div className="small muted" style={{ marginBottom: 6 }}>
+      {a.ov === 'merge' ? 'Merged into the workout you logged at the same time.' : a.ov === 'skip' ? 'Skipped: not in your history or calendar.' : 'Strength work from WHOOP.'}
+      {a.explicit ? '' : ' (your default)'}
+    </div>
+    <div className="chips" role="radiogroup" aria-label="WHOOP session" style={{ margin: '0 0 12px', flexWrap: 'wrap' }}>
+      {['keep', 'merge', 'skip'].map(k => <button key={k} type="button" role="radio" aria-checked={a.ov === k}
+        className={'chip nocap' + (a.ov === k ? ' on' : '')} onClick={() => set(k)}>{CHOICE_LABEL[k]}</button>)}
+      {a.explicit && <button type="button" className="chip nocap" onClick={() => set(null)}>Use default</button>}
+    </div>
+  </>
+}
+
+/** The WHOOP sessions merged into workout `w`, as a line each (WorkoutDetail). */
+export function WhoopOnWorkout({ w }) {
+  const S = useStore(s => s.S)
+  const merged = whoopForWorkout(S, w)
+  if (!merged.length) return null
+  return <div className="small" style={{ margin: '0 0 12px' }} data-whoop-on-workout>
+    {merged.map(a => <div key={a.id} {...tappable(() => activitySheet({ id: a.id }))}>{'WHOOP: ' + (whoopFacts(a) || activityName(a, t))}</div>)}
+  </div>
 }
 
 /** Log a new activity (on `day`, else today), or open the one with `id`. */

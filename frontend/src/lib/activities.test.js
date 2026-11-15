@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  readActivity, activitiesOf, withActivity, activityTotals, activityStimuli, activityFromHealth, mergeHealthActivities,
+  readActivity, activitiesOf, withActivity, withChoice, activityTotals, activityStimuli, activityFromHealth, mergeHealthActivities,
   sportOfName, activitiesFromHealthExport, splitSportWorkouts, mergeImportedActivities, isOwnRecord, hkSportName, activityLine,
 } from './activities.js'
 import { streakInfo } from './streak.js'
@@ -192,5 +192,55 @@ describe('activities: WHOOP updates never undo the person (fork, SC-17)', async 
     // the two hand copies agree on what is the server's and what is stamped per entry
     expect(api.SERVER_OWNED).toEqual(SERVER_OWNED)
     expect(api.STAMPED_MAPS).toEqual(STAMPED_MAPS)
+  })
+})
+
+describe('activities: WHOOP strength sessions next to a logged workout (fork, D10/D21)', async () => {
+  const { choiceOf, overlapOf } = await import('../../../api/coach/core/whoop-activities.js')
+  const { mergeStates } = await import('./sync-merge.js')
+  const H = 3600000, T = Date.UTC(2026, 10, 14, 17)
+  const lift = { d: '2026-11-14', sport: 'other', title: 'Weightlifting', min: 60, at: T, durMs: H, src: 'whoop', wu: '00000000-0000-4000-8000-000000000002', st: 1, strain: 12 }
+  const gym = { id: 'g1', d: '2026-11-14', start: T + 5 * 60000, end: T + 70 * 60000, entries: [] }
+  const shown = S => activitiesOf(S).map(a => a.id)
+
+  it('no workout beside it: an activity, whatever the default says', () => {
+    expect(choiceOf({ whoopStrength: 'skip', workouts: [] }, 'w2', lift)).toEqual({ ov: 'keep', wid: null, explicit: false })
+  })
+  it('the default applies once a workout overlaps, even one logged after the import; the person’s own choice beats it', () => {
+    const S = { whoopStrength: 'merge', activities: { w2: { ...lift, _ts: 1 } }, workouts: [] }
+    expect(shown(S)).toEqual(['w2'])
+    S.workouts = [gym]
+    expect(shown(S)).toEqual([])
+    expect(choiceOf(S, 'w2', lift)).toEqual({ ov: 'merge', wid: 'g1', explicit: false })
+    S.whoopChoice = withChoice(S.whoopChoice, 'w2', 'keep', 5)
+    expect(shown(S)).toEqual(['w2'])
+  })
+  it('follows the workout it overlaps most, as times change; one without an id is linked by its day and start', () => {
+    const a = { id: 'a', d: lift.d, start: T + 50 * 60000, end: T + 90 * 60000 }
+    const b = { d: lift.d, start: T - 10 * 60000, end: T + 40 * 60000 }
+    expect(overlapOf([a, b], lift).key).toBe(`${lift.d}|${T - 10 * 60000}`)
+    a.start = T; a.end = T + H
+    expect(overlapOf([a, b], lift).key).toBe('a')
+  })
+  it('merge with its workout deleted shows it as an activity again, and the choice comes back with a workout', () => {
+    const S = { whoopChoice: { w2: { ov: 'merge', _ts: 3 } }, activities: { w2: { ...lift, _ts: 1 } }, workouts: [] }
+    expect(shown(S)).toEqual(['w2'])
+    S.workouts = [gym]
+    expect(shown(S)).toEqual([])
+  })
+  it('the exact length decides the overlap: 20 s ending before the workout is not on it; a shortened session leaves it', () => {
+    const blip = { ...lift, min: 1, durMs: 20000, at: gym.start - 50000 }
+    expect(overlapOf([gym], blip)).toBeNull()
+    const cut = withActivity({}, 'w2', { ...lift, min: 4 }, 2).w2   // 17:00-17:04, the workout starts 17:05
+    expect(overlapOf([gym], cut)).toBeNull()
+  })
+  it('the person’s choice and WHOOP’s update are separate maps: both survive a merge; Use default syncs too', () => {
+    const phone = { activities: { w2: { ...lift, _ts: 1 } }, whoopChoice: withChoice({}, 'w2', 'keep', 101) }
+    const server = { activities: { w2: { ...lift, _ts: 1 } }, whoopActs: { w2: { ...lift, strain: 15, _ts: 102 } } }
+    const m = mergeStates(phone, server)
+    expect(m.whoopChoice.w2.ov).toBe('keep')
+    expect(m.whoopActs.w2.strain).toBe(15)
+    const cleared = mergeStates({ whoopChoice: withChoice(m.whoopChoice, 'w2', null, 200) }, m)
+    expect(choiceOf({ ...cleared, whoopStrength: 'skip', workouts: [gym] }, 'w2', lift).ov).toBe('skip')
   })
 })

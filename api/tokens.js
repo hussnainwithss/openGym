@@ -52,6 +52,8 @@ export const KEY_CATEGORY = {
   // WHOOP (fork): what WHOOP changed on an imported activity; read with the activities, never written
   // by a token (server.js commitState keeps the stored copy).
   whoopActs: ['workouts'],
+  // The person's keep / merge / skip for a WHOOP strength session, and the default for new ones.
+  whoopChoice: ['workouts'], whoopStrength: ['workouts'],
   // Body facts the Tools page and the strength levels read (v1.4.5): personal, so not a setting
   // that rides along with a plans-only token.
   heightCm: ['bodyweight', 'measurements'], birthYear: ['bodyweight', 'measurements'], sex: ['bodyweight', 'measurements'],

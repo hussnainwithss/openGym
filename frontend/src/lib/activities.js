@@ -24,7 +24,7 @@
 // never makes a second one, and a removed one is never brought back (the stamp stays).
 import { NOTE_MAX } from './history.js'
 import { hashId } from './weigh-ins.js'
-import { effectiveActivity } from '../../../api/coach/core/whoop-activities.js'
+import { effectiveActivity, choiceOf, CHOICES } from '../../../api/coach/core/whoop-activities.js'
 
 export const SPORTS = ['run', 'ride', 'swim', 'hike', 'row', 'ski', 'football', 'racket', 'ball', 'climb', 'fight', 'yoga', 'dance', 'other']
 export const SPORT_LABEL = {
@@ -106,14 +106,23 @@ function whoopFields(e) {
   return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined))
 }
 
-/** Every activity, newest day first, as { id, d, sport, min, … }. */
-export function activitiesOf(S) {
+/** Every activity, newest day first, as { id, d, sport, min, … }. A WHOOP strength session merged
+ *  into a logged workout or skipped is left out, unless `all` (the sheets that let the person
+ *  change that); those carry `ov` (keep / merge / skip), `wid` and `explicit`. */
+export function activitiesOf(S, { all = false } = {}) {
   const map = isMap(S?.activities) ? S.activities : {}
   const out = []
   for (const [id, e] of Object.entries(map)) {
     // A WHOOP session as WHOOP last left it, unless the person edited it (api/coach/core/whoop-activities.js).
     const a = readActivity(effectiveActivity(S, id, e))
-    if (a) out.push({ id, ...a, _ts: Number(e._ts) || 0 })
+    if (!a) continue
+    if (a.st === 1) {
+      const c = choiceOf(S, id, a)
+      if (c.ov !== 'keep' && !all) continue
+      out.push({ id, ...a, ov: c.ov, wid: c.wid, explicit: c.explicit, _ts: Number(e._ts) || 0 })
+      continue
+    }
+    out.push({ id, ...a, _ts: Number(e._ts) || 0 })
   }
   return out.sort((a, b) => (a.d < b.d ? 1 : a.d > b.d ? -1 : (b.at || 0) - (a.at || 0) || b._ts - a._ts))
 }
@@ -140,6 +149,18 @@ export function withActivity(map, id, activity, now = Date.now()) {
     if (clean.durMs && Math.min(ACTIVITY_MIN_MAX, Math.max(1, Math.round(clean.durMs / 60000))) !== clean.min) clean.durMs = clean.min * 60000
   }
   return { ...(isMap(map) ? map : {}), [id]: clean ? { ...clean, _ts: now } : { _ts: now } }
+}
+
+/** S.whoopChoice with the person's keep / merge / skip for a WHOOP session (`ov` null: back to
+ *  the default), stamped `now` so it syncs. Only devices write this map. */
+export function withChoice(map, id, ov, now = Date.now()) {
+  return { ...(isMap(map) ? map : {}), [id]: CHOICES.includes(ov) ? { ov, _ts: now } : { _ts: now } }
+}
+
+/** The WHOOP sessions merged into workout `w` (its strain, heart rate and energy), newest first. */
+export const whoopForWorkout = (S, w) => {
+  const key = w?.id != null ? String(w.id) : `${w?.d}|${w?.start}`
+  return activitiesOf(S, { all: true }).filter(a => a.ov === 'merge' && a.wid === key)
 }
 
 /** What a row calls it: its own title when it came with one, else the sport. */
