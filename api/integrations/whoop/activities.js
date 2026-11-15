@@ -23,7 +23,7 @@ const SPORT = {
   basketball: 'ball', volleyball: 'ball', baseball: 'ball', softball: 'ball', hockey: 'ball', 'ice hockey': 'ball', 'field hockey': 'ball', handball: 'ball', lacrosse: 'ball', netball: 'ball', cricket: 'ball',
   climbing: 'climb', 'rock climbing': 'climb', bouldering: 'climb',
   boxing: 'fight', kickboxing: 'fight', 'martial arts': 'fight', 'jiu jitsu': 'fight', wrestling: 'fight', mma: 'fight',
-  yoga: 'yoga', 'hot yoga': 'yoga', pilates: 'yoga', stretching: 'yoga',
+  yoga: 'yoga', 'hot yoga': 'yoga', pilates: 'yoga',
   dance: 'dance', barre: 'dance',
 };
 // Sessions that are strength work: they may duplicate a workout logged in openGym.
@@ -36,8 +36,12 @@ export const RECOVERY = {
   'ice bath': { kind: 'cold' }, 'cold plunge': { kind: 'cold' },
   'warm bath': { kind: 'other', note: 'Warm bath' }, 'hot tub': { kind: 'other', note: 'Hot tub' },
   massage: { kind: 'massage' }, 'massage therapy': { kind: 'massage' },
+  // The person's call (fork): stretching is recovery work, not a training day.
+  stretching: { kind: 'stretch', note: 'Stretching' },
 };
 // Names WHOOP gives that read better as something else.
+// Sessions that keep WHOOP's name although they map to a sport (a walk is not a hike).
+const NAMED = new Set(['walking']);
 const TITLE = { 'weightlifting msk': 'Strength Trainer', hiit: 'HIIT' };
 /** WHOOP's sport name as these tables key it: 'weightlifting_msk', 'warm-bath' → 'weightlifting msk', 'warm bath'. */
 export const sportKey = name => String(name || '').toLowerCase().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -62,7 +66,7 @@ export function activityOf(r, whoopUser) {
     d: localDay(r.start, r.off), sport, min: Math.min(1440, Math.max(1, Math.round(durMs / 60_000))),
     at: r.start, durMs, src: 'whoop', wu: r.id, ...(whoopUser ? { wa: whoopUser } : {}),
   };
-  if (sport === 'other' && key) out.title = title(key);
+  if ((sport === 'other' || NAMED.has(key)) && key) out.title = title(key);
   if (STRENGTH.has(key)) out.st = 1;
   if (r.km > 0 && r.km < 1000) out.km = Math.round(r.km * 100) / 100;
   for (const k of ['strain', 'hr', 'hrMax', 'kj']) if (r[k] != null) out[k] = Math.round(r[k] * 10) / 10;

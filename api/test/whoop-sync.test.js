@@ -794,4 +794,11 @@ test('WHOOP names that read as a known sport map to it: hiking_rucking, football
   assert.equal(r('football').sport, 'football');
   assert.equal(r('hiit').title, 'HIIT');
   assert.equal(r('elliptical').title, 'Elliptical');
+  assert.deepEqual([r('walking').sport, r('walking').title], ['hike', 'Walking']);
+});
+
+test('stretching is a recovery session (Mobility), not an activity', async () => {
+  const { recoveryOf } = await import('../integrations/whoop/activities.js');
+  assert.deepEqual(recoveryOf({ start: T0, end: T0 + 12 * MIN, off: 0, sport: 'stretching' }), { d: '2026-11-15', kind: 'stretch', min: 12, note: 'Stretching (WHOOP)' });
+  assert.equal(recoveryOf({ start: T0, end: T0 + 12 * MIN, off: 0, sport: 'walking' }), null);
 });
