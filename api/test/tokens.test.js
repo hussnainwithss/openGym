@@ -22,7 +22,7 @@ test('a token is shown once and stored only as its SHA-256', () => {
   assert.ok(!JSON.stringify(db).includes(token.slice(4)), 'db.json never holds the token');
   assert.match(row.h, /^[0-9a-f]{64}$/);
   assert.equal(row.hint, token.slice(4, 10));
-  assert.deepEqual(row.scopes, { workouts: 'view', plans: 'off', bodyweight: 'off', measurements: 'off', notes: 'off' });
+  assert.deepEqual(row.scopes, { workouts: 'view', plans: 'off', bodyweight: 'off', measurements: 'off', notes: 'off', whoop: 'off' });
   const listed = listTokens(db, user());
   assert.equal(listed.length, 1);
   assert.equal(listed[0].h, undefined, 'the list carries no hash');
@@ -30,7 +30,7 @@ test('a token is shown once and stored only as its SHA-256', () => {
 
 test('scopes are capped and a token that sees nothing is refused', () => {
   assert.deepEqual(cleanTokenScopes({ notes: 'apply', workouts: 'suggest', plans: 'apply', admin: 'apply' }),
-    { workouts: 'off', plans: 'apply', bodyweight: 'off', measurements: 'off', notes: 'view' });
+    { workouts: 'off', plans: 'apply', bodyweight: 'off', measurements: 'off', notes: 'view', whoop: 'off' });
   assert.throws(() => createToken({}, user(), { scopes: {} }), e => e instanceof ScopeError && e.code === 'nothing-granted');
   assert.throws(() => createToken({}, user(), { scopes: { workouts: 'view' }, days: 5 }), e => e.code === 'bad-days');
   const db = {};
@@ -118,6 +118,17 @@ test('scopedState: own sounds never, body facts only with body weight or measure
   assert.equal(bw.heightCm, 181); assert.equal(bw.sex, 'female'); assert.equal('sounds' in bw, false);
   assert.equal(scopedState(S, { measurements: 'view' }).birthYear, 1990);
   assert.throws(() => mergeScoped(S, { sounds: [] }, { workouts: 'apply' }), e => e.code === 'scope');
+});
+
+// Fork: WHOOP's daily numbers only with the whoop category, never writable; whoopSeen never.
+test('scopedState: WHOOP days only with the whoop category, read-only, and whoopSeen never', () => {
+  const S = { ...doc(), whoopDays: { '2026-11-15': { rec: 70, _ts: 1 } }, whoopSeen: { wh1: 1 } };
+  assert.equal('whoopDays' in scopedState(S, { workouts: 'view', bodyweight: 'view' }), false);
+  const w = scopedState(S, { whoop: 'view' });
+  assert.deepEqual(w.whoopDays, S.whoopDays);
+  assert.equal('whoopSeen' in w, false);
+  assert.equal(cleanTokenScopes({ whoop: 'apply' }).whoop, 'view');
+  assert.throws(() => mergeScoped(S, { ...S, whoopDays: {} }, { whoop: 'apply', workouts: 'apply' }), e => e instanceof ScopeError);
 });
 
 test('mergeScoped: writes what it may, ignores what it read back unchanged, refuses the rest', () => {

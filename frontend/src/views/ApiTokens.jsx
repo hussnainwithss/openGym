@@ -14,8 +14,8 @@ import { Section, Row, SelectRow, Button, TextField } from '../components/ui.jsx
    server keeps only a hash, so a new token is shown once. */
 
 export const MCP_REMOTE_DOCS = 'https://github.com/DuarteSantos8/openGym/blob/main/docs/MCP_REMOTE.md'
-export const ICON = { workouts: 'dumbbell', plans: 'calendar', bodyweight: 'scale', measurements: 'ruler', notes: 'pencil' }
-export const TINT = { workouts: 'var(--green)', plans: 'var(--orange)', bodyweight: 'var(--teal)', measurements: 'var(--indigo)', notes: 'var(--yellow)' }
+export const ICON = { workouts: 'dumbbell', plans: 'calendar', bodyweight: 'scale', measurements: 'ruler', notes: 'pencil', whoop: 'heart' }
+export const TINT = { workouts: 'var(--green)', plans: 'var(--orange)', bodyweight: 'var(--teal)', measurements: 'var(--indigo)', notes: 'var(--yellow)', whoop: 'var(--red)' }
 const sheet = render => useUI.getState().openSheet(render)
 const errText = e => e?.message || t('Something went wrong')
 

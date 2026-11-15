@@ -35,7 +35,20 @@ WHOOP_CLIENT_SECRET=
 
 # Behind Cloudflare: record the visitor's address, not Cloudflare's (single quotes included)
 CF_CONNECTING_IP='$http_cf_connecting_ip'
+
+# Optional
+ADMIN_UIDS=          # your Settings → Account → Account ID: the admin dashboard
+INVITE_ONLY=1        # new profiles need an invite code from that dashboard
+ALLOW_GUEST=0        # no "Continue without account"
+AUDIT_IP=net         # IP addresses in the activity log (net: the /24 only; full: whole address)
+MCP=on               # remote MCP for AI assistants, see "Remote MCP" below
 ```
+
+The API listens on port 3080, not upstream's 3000 (`API_PORT` changes it): a host firewall that
+guards Dokploy's own UI on port 3000 (for example rules in Docker's `DOCKER-USER` chain that admit
+only Tailscale and the LAN) also drops the web container's calls to an API on 3000. `TRUST_PROXY=1`
+is set in the compose file already. After changing anything here, **Deploy** (a restart keeps the
+old environment).
 
 `RP_ID` is the bare hostname and `ORIGIN` the full https address of the same host: passkeys are bound
 to it, so set them once and keep them (changing them later signs everyone out of their passkeys).
@@ -65,7 +78,12 @@ a passkey.
 On the WHOOP Developer Dashboard (https://developer-dashboard.whoop.com), in your app:
 
 - **Redirect URL:** `https://gym.example.com/api/integrations/oauth/callback`, exactly.
-- **Webhook URL** (optional, near-instant updates): `https://gym.example.com/api/integrations/whoop/webhook`.
+- **Scopes:** read:recovery, read:cycles, read:workout, read:sleep, read:profile, read:body_measurement.
+- **Webhook URL** (optional, near-instant updates): `https://gym.example.com/api/integrations/whoop/webhook`,
+  model version **v2** (the handler takes v2's UUID ids). WHOOP sends one only when something new is
+  scored; there is no test call. Workouts, sleep and recovery come this way; cycles (strain) and
+  body weight only by the 15-minute poll. Cloudflare's Bot Fight Mode or a WAF rule must not
+  challenge that path; Security → Events shows it if it does.
 
 Put the app's Client ID and Secret in the Environment tab (step 2), redeploy, then in openGym:
 Settings → Integrations → WHOOP → Connect, from the browser. The first sync brings in the whole
@@ -79,10 +97,20 @@ Pi's address instead of localhost when cloudflared runs elsewhere). Traefik then
 hostname to openGym's `web`. Cloudflare serves HTTPS to the world, which passkeys and WHOOP's
 webhooks both need.
 
+## Remote MCP
+
+The compose file has an `mcp` service (docs/MCP_REMOTE.md): an AI assistant reads, and if you
+allow it changes, your training through a scoped token. Set `MCP=on` in the Environment tab and
+Deploy; then in Claude, Connectors → add a custom connector `https://gym.example.com/mcp` and sign in
+with openGym, picking what it may see (WHOOP recovery & sleep is its own category). The Cloudflare
+tunnel needs nothing new; Cloudflare Access, Bot Fight Mode or a WAF challenge on `/mcp`,
+`/.well-known/` or `/api/oauth/` would stop the assistant's servers from connecting.
+
 ## Backups and updates
 
 - Everything lives in the `opengym-data` volume (Dokploy shows it as `<app>_opengym-data`): users,
-  passkeys, every profile, the WHOOP history, uploads. Back it up with Dokploy's **Volume Backups**
+  passkeys, every profile, the WHOOP history, uploads, and `secret`, which seals the WHOOP tokens
+  (restore the two together). Back it up with Dokploy's **Volume Backups**
   (Advanced → Volumes), or `docker run --rm -v <volume>:/data -v $PWD:/out alpine tar czf /out/opengym.tgz -C /data .`.
 - **Auto Deploy** (General tab) rebuilds on every push to the branch; or deploy by hand.
 - Moving from a `docker compose` install with `./data`: copy that folder's contents into the volume

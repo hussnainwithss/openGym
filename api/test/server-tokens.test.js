@@ -103,7 +103,7 @@ test('reads only its categories, writes only its keys, over the exact revision, 
 
   const me = await h.call('GET', '/api/token/me', { headers: bearer(plans) });
   assert.equal(me.body.user.id, 'u_t_1');
-  assert.deepEqual(me.body.token.scopes, { workouts: 'view', plans: 'apply', bodyweight: 'off', measurements: 'off', notes: 'off' });
+  assert.deepEqual(me.body.token.scopes, { workouts: 'view', plans: 'apply', bodyweight: 'off', measurements: 'off', notes: 'off', whoop: 'off' });
 
   const r = await h.call('GET', '/api/token/data', { headers: bearer(ro) });
   assert.equal(r.status, 200);

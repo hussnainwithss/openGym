@@ -58,7 +58,8 @@ export function createMcpHandler({
   const cache = new Map()
   const IDLE = 10 * 60000
   const refused = windowCounter(30, 60000, now)   // failed sign-ins per client address
-  const clientOf = req => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',').pop().trim()
+  // CF-Connecting-IP first: nginx sets it only behind Cloudflare (CF_CONNECTING_IP), and drops a client's own.
+  const clientOf = req => String(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',').pop().trim()
 
   const send = (res, status, body, headers = {}) => {
     res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers })

@@ -27,7 +27,7 @@ cannot be switched off.
 | **Health** | The Apple Health and Health Connect pages and cards, the Works with list, live heart rate during a workout, recovery tips on Home. Syncing with the health app pauses (see below). |
 | **Motivation** | The streak card on Home and in Stats, monthly challenges and the trophy shelf, the week and month recap, Your year (its Home card, its Stats rows and its December notification), Share as image, the streak on the watch. With it off, Weekly sets on Home gets a small card of its own. |
 | **AI Coach** | The Coach button on Plan, Ask the Coach in a workout, the Coach screens, its Settings row and Integrations card, scheduled reviews. |
-| **Integrations** | The Webhooks and MCP server cards and search hits. Webhooks pause (see below). Imports and the CSV export are core and stay. |
+| **Integrations** | The Webhooks, WHOOP (fork) and MCP server cards and search hits. Webhooks pause (see below). Imports and the CSV export are core and stay. |
 | **Seasonal themes** | Halloween, Christmas and the advent calendar, their colours and decorations, the Seasonal themes page. |
 
 A module that is off is gone everywhere it shows: Home, Stats and its index, Settings pages and
@@ -59,6 +59,8 @@ A module that is connected to something asks once before it goes off and says wh
 - **Watch**: the watch gets no workouts while it's off. It stays paired.
 - **Integrations**: your webhooks stop sending. They stay set up; events that happen while it's off
   are not sent later.
+  Fork: WHOOP stops syncing too (no poll, webhooks ignored); switched back on, the next poll catches
+  up. The presets "Just training" and "Training and body" switch Integrations off.
 - **AI Coach**: scheduled reviews pause, on your server and on a phone with its own key. Your setup
   and chats stay.
 

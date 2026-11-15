@@ -14,7 +14,7 @@ even listed.
 In `.env`:
 
 ```bash
-COMPOSE_PROFILES=mcp   # starts the mcp container
+COMPOSE_PROFILES=mcp   # starts the mcp container (docker-compose.yml; the fork's Dokploy file always has it, docs/SELF_HOSTING_DOKPLOY.md)
 MCP=on                 # tells the app to show the address in Settings
 ```
 
@@ -127,6 +127,8 @@ preview writes with `dry_run`, save after the user agrees.
 | list_workouts, get_workout, estimate_1rm, muscle_balance | Workouts: See |
 | search_exercises | Workouts or Plans: See (the library, not your data) |
 | get_bodyweight | Body weight: See |
+| list_activities (fork): training outside the logger (WHOOP sessions, runs) and recovery sessions | Workouts: See |
+| get_recovery (fork): WHOOP's daily recovery, HRV, sleep and strain, newest 120 days | WHOOP recovery & sleep: See |
 | log_workout | Workouts: Change directly |
 | create_routine, update_routine, delete_routine | Plans: Change directly |
 

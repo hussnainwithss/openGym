@@ -31,6 +31,8 @@ export const TOKEN_CATEGORIES = [
   { id: 'bodyweight', max: 'apply' },
   { id: 'measurements', max: 'apply' },
   { id: 'notes', max: 'view' },
+  // Fork: WHOOP's daily recovery, sleep and strain (S.whoopDays), read-only: the server alone writes it.
+  { id: 'whoop', max: 'view' },
 ];
 export const TOKEN_CATEGORY_IDS = TOKEN_CATEGORIES.map(c => c.id);
 export const TOKENS_MAX = 10;
@@ -55,6 +57,7 @@ export const KEY_CATEGORY = {
   whoopActs: ['workouts'],
   // The person's keep / merge / skip for a WHOOP strength session, and the default for new ones.
   whoopChoice: ['workouts'], whoopStrength: ['workouts'],
+  whoopDays: ['whoop'],
   // Body facts the Tools page and the strength levels read (v1.4.5): personal, so not a setting
   // that rides along with a plans-only token.
   heightCm: ['bodyweight', 'measurements'], birthYear: ['bodyweight', 'measurements'], sex: ['bodyweight', 'measurements'],
@@ -63,7 +66,7 @@ export const KEY_CATEGORY = {
 // offered), the Coach's conversation, the live workout, linked services, and the server's notes.
 // Your own sounds (`sounds`, v1.4.5) are recordings of yours like the photos.
 // whoopSeen (fork): the server's own note of which WHOOP weights it put in, nobody else's business.
-const NEVER = new Set(['whoopSeen', 'whoopDays', 'dayPhotos', 'exMedia', 'dayForm', 'avatar', 'sounds', 'active', 'coach', 'integrations', '_unstamped', '_prior', 'deleted', 'edited', 'undone']);
+const NEVER = new Set(['whoopSeen', 'dayPhotos', 'exMedia', 'dayForm', 'avatar', 'sounds', 'active', 'coach', 'integrations', '_unstamped', '_prior', 'deleted', 'edited', 'undone']);
 const NEVER_RE = /photo|avatar|video|secret|token|password|integration/i;
 // What the server keeps itself and the token reads along with the document, never writes.
 const BOOK = new Set(['_rev', '_wid', '_wids', '_ts']);

@@ -8,6 +8,7 @@ import { categoryLabel } from './sharing-api.js'
 export const TOKEN_CATEGORIES = [
   { id: 'workouts', max: 'apply' }, { id: 'plans', max: 'apply' }, { id: 'bodyweight', max: 'apply' },
   { id: 'measurements', max: 'apply' }, { id: 'notes', max: 'view' },
+  { id: 'whoop', max: 'view' },   // fork: WHOOP recovery, sleep and strain (api/tokens.js)
 ]
 export const TOKEN_DAYS = [7, 30, 90, 365, 0]
 

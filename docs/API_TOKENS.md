@@ -14,16 +14,19 @@ Each category is **Off**, **See** or **Change directly**:
 
 | Category | Covers in your profile | Most it can get |
 |---|---|---|
-| Workouts | the workout history, confirmed weights, your own exercises | Change directly |
+| Workouts | the workout history, confirmed weights, your own exercises; activities and recovery sessions, WHOOP's later changes to them and your keep / merge / skip choices (fork) | Change directly |
 | Plans & routines | routines, the weekly plan, the floating week (`queue`), rotations, programmes, date targets, your own exercises | Change directly |
 | Body weight | weigh-ins, goal weight, weekly rate | Change directly |
 | Body measurements | check-ins and your own fields | Change directly |
 | Notes | day notes, standing exercise notes | See |
+| WHOOP recovery & sleep (fork) | WHOOP's daily recovery, HRV, resting heart rate, SpO2, skin temperature, sleep and strain, the newest 120 days (`whoopDays`) | See |
 
 Settings such as units, the week start and progression defaults ride along with any token that
 sees anything (they are needed to read the rest the way the app does) and are never writable.
 Never in any token's read: progress photos, the profile picture, the Coach's conversation, the
-workout in progress, linked services and the server's sync bookkeeping. Workouts may name a photo
+workout in progress, linked services and the server's sync bookkeeping (the fork's `whoopSeen` included).
+A token with Workouts at Change directly can edit or remove imported WHOOP activities like any
+other; give an assistant See unless it should log sessions. Workouts may name a photo
 or video by its hash; the file itself needs a signed-in session.
 
 ## The routes

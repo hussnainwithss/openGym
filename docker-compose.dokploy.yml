@@ -53,5 +53,27 @@ services:
       - MCP_BACKEND=mcp
       - MCP_PORT=3100
 
+  # Remote MCP (docs/MCP_REMOTE.md): lets an AI assistant read, and if you allow it change, your
+  # training through a scoped token or Claude's connector sign-in. Holds no data and no secret; it
+  # asks the api for each request. Switched on by MCP=on in the Environment tab (the api's OAuth
+  # documents); without it the container runs but nobody can sign in through it.
+  mcp:
+    build:
+      context: .
+      dockerfile: mcp/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    expose:
+      - "3100"
+    environment:
+      - MCP_PORT=3100
+      # The image defaults to api:3000, which the Pi's admin firewall drops between containers.
+      - OPENGYM_API_URL=http://api:${API_PORT:-3080}
+      # The address Claude starts its sign-in from (the 401's resource_metadata pointer).
+      - ORIGIN=${ORIGIN}
+      - BASE_PATH=
+
 volumes:
   opengym-data:

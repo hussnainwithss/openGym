@@ -25,6 +25,7 @@ export const sharingExport = () => api('/api/sharing/export')
 export const categoryLabel = id => ({
   metrics: t('Key numbers'), workouts: t('Workouts'), plans: t('Plans & routines'), bodyweight: t('Body weight'),
   measurements: t('Body measurements'), photos: t('Progress photos'), notes: t('Notes'), nutrition: t('Nutrition'),
+  whoop: 'WHOOP recovery & sleep',   // fork, English only
 }[id] || id)
 export const levelLabel = lv => ({ off: t('Off'), view: t('See'), suggest: t('Suggest'), apply: t('Change directly') }[lv] || lv)
 

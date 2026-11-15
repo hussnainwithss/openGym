@@ -52,7 +52,7 @@ test('the whole flow: authorize, consent, a single-use code bound to the verifie
   const shown = oauth.describeRequest(pending, a.request.id);
   assert.equal(shown.client, 'Claude');
   assert.equal(shown.redirectHost, 'claude.ai');
-  assert.deepEqual(shown.scopes, { workouts: 'view', plans: 'apply', bodyweight: 'off', measurements: 'off', notes: 'off' });
+  assert.deepEqual(shown.scopes, { workouts: 'view', plans: 'apply', bodyweight: 'off', measurements: 'off', notes: 'off', whoop: 'off' });
   let made = null;
   const ok = oauth.approve(pending, codes, a.request.id, { scopes: { workouts: 'view' }, days: 90 }, (name, scopes, days) => { made = { name, scopes, days }; return { value: 'ogt_' + 'a'.repeat(43), scopes: { workouts: 'view' }, expiresIn: 7776000 }; });
   assert.equal(made.name, 'Claude (connector)');
@@ -95,7 +95,7 @@ test('deny sends access_denied back; an expired request cannot be approved', () 
 });
 
 /* ---------- sub-connect-146: what Claude's and ChatGPT's connector clients need ---------- */
-const ROW = (over = {}) => ({ id: 't_1', userId: 'u1', sv: 0, h: 'x'.repeat(64), hint: 'abc', name: 'Claude (connector)', scopes: { workouts: 'view', plans: 'apply', bodyweight: 'off', measurements: 'off', notes: 'off' }, created: 1, exp: null, used: null, ...over });
+const ROW = (over = {}) => ({ id: 't_1', userId: 'u1', sv: 0, h: 'x'.repeat(64), hint: 'abc', name: 'Claude (connector)', scopes: { workouts: 'view', plans: 'apply', bodyweight: 'off', measurements: 'off', notes: 'off', whoop: 'off' }, created: 1, exp: null, used: null, ...over });
 const owner = () => ({ id: 'u1', sv: 0 });
 
 function connected({ scope = 'workouts:view offline_access', now = 1_000_000, days = 0, grants } = {}) {

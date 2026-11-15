@@ -79,6 +79,8 @@ Eleven read-only tools, and four that write:
 | `list_workouts` | Recent sessions — newest first, with dates, sets done/planned, volume, duration, PRs. |
 | `get_workout` | Full set-by-set breakdown of one session, by `workout_id` or by date. On a day with two sessions the date alone returns both ids to pick from rather than guessing at one. `form_videos` says how many sets were filmed; the videos themselves never leave the app. A set with a note of its own (set menu → Note) carries it as `sets[].note`. |
 | `get_bodyweight` | Weigh-ins, one value per day (the profile's "Daily weigh-in value": morning, average or last), each day's readings with their times, the latest weight, the goal line, and deltas vs goal. |
+| `list_activities` | (fork) Training done outside the logger, newest first: WHOOP sessions with strain, heart rate and kJ, runs from Apple Health or Health Connect, imported sports; and recovery sessions (sauna, ice bath, massage). A WHOOP strength session merged into a logged workout or skipped is left out, as in the app. |
+| `get_recovery` | (fork) WHOOP's daily numbers per wake-up date: recovery, HRV, resting heart rate, SpO2, skin temperature, sleep, strain, steps; a part not scored yet is null with its state. Newest 120 days. Needs the token's WHOOP recovery & sleep category. |
 | `estimate_1rm` | All-time best 1RM for an exercise + the trend, or a PR table across all exercises. |
 | `muscle_balance` | Which muscles I've trained this week/month/all-time, ranked + which I've neglected. |
 | `get_programme` | My programmes (routines as a block of weeks with %1RM / RPE targets), and which week of the running one I'm in. |
