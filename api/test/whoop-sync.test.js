@@ -17,9 +17,9 @@ const T0 = Date.UTC(2026, 10, 15, 12);
 /** A hub with one connected profile, a pretend profile store and a movable clock. */
 export async function setup({ w = fakeWhoop(), dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-whoop-sync-')), clock = { t: T0 }, S = {}, connect = true } = {}) {
   const h = createIntegrations({ dataDir, secret: SECRET, env: ENV, fetchFn: w.fetchFn, now: () => clock.t });
-  const profile = { S, writes: 0 };
+  const profile = { S, writes: 0, users: [{ id: 'u1' }] };
   h.attach({
-    users: () => [{ id: 'u1' }],
+    users: () => profile.users,
     readState: () => profile.S,
     writeState: (uid, fn, { skipIf } = {}) => {
       const next = JSON.parse(JSON.stringify(profile.S));
@@ -343,3 +343,73 @@ for (const order of [['recovery.deleted', 'sleep.deleted'], ['sleep.deleted', 'r
     assert.equal(d.records.recovery[cyc], undefined);
   });
 }
+
+/* ---- C7: nothing written for a connection or an account that is gone ---- */
+
+function holdListings(w) {
+  let release;
+  const gate = new Promise(r => { release = r; });
+  const real = w.handler;
+  w.handler = async (url, o) => { if (url.includes('/v2/cycle?')) await gate; return real(url, o); };
+  return () => { w.handler = real; release(); };
+}
+
+test('a fetch in flight when WHOOP is disconnected, or the account deleted, writes nothing when it lands', async () => {
+  for (const end of ['disconnect', 'delete']) {
+    const w = fakeWhoop();
+    history(w, 3);
+    const c = await setup({ w });
+    c.h._projectors.push(S => { S.touched = true; return true; });
+    const release = holdListings(w);
+    const run = c.sync.tick();
+    await new Promise(r => setTimeout(r, 20));
+    if (end === 'disconnect') c.h.disconnect('u1', c.id);
+    else { c.profile.users = []; c.h.removeUser('u1'); }
+    release();
+    await run;
+    assert.equal(c.profile.writes, 0, end);
+    assert.equal(fs.existsSync(path.join(c.dataDir, 'whoop', 'u-u1.json')), false, end);
+  }
+});
+
+test('a WHOOP sign-in that lands after a newer one, a disconnect or the account’s deletion is refused', async () => {
+  const w = fakeWhoop();
+  const c = await setup({ w, connect: false });
+  const start = () => new URL(c.h.oauthStart('u1', 'whoop', CB)).searchParams.get('state');
+  let release;
+  // two sign-ins in flight; the newer finishes first
+  w.holdToken = new Promise(r => { release = r; });
+  const older = c.h.oauthFinish({ state: start(), code: 'good' }, 'u1');
+  const newer = c.h.oauthFinish({ state: start(), code: 'good' }, 'u1');
+  w.holdToken = null; release();
+  const [o, n] = await Promise.allSettled([older, newer]);
+  assert.equal(o.status, 'rejected');
+  assert.equal(o.reason.code, 'stale');
+  assert.equal(n.status, 'fulfilled');
+  assert.equal(c.h.describe('u1').connections[0].id, n.value.connection.id);
+  // disconnect while a sign-in is on its way back
+  w.holdToken = new Promise(r => { release = r; });
+  const again = c.h.oauthFinish({ state: start(), code: 'good' }, 'u1');
+  c.h.disconnect('u1', n.value.connection.id);
+  w.holdToken = null; release();
+  await assert.rejects(again, e => e.code === 'stale');
+  assert.equal(c.h.describe('u1').connections.length, 0);
+  // the account deleted while a sign-in is on its way back
+  w.holdToken = new Promise(r => { release = r; });
+  const late = c.h.oauthFinish({ state: start(), code: 'good' }, 'u1');
+  c.profile.users = []; c.h.removeUser('u1');
+  w.holdToken = null; release();
+  await assert.rejects(late);
+  assert.equal(fs.existsSync(path.join(c.dataDir, 'integrations', 'u-u1.json')), false);
+});
+
+test('deleting an account removes its WHOOP files even when WHOOP is switched off at this start', async () => {
+  const w = fakeWhoop();
+  history(w, 1);
+  const c = await backfilled({ w });
+  assert.ok(fs.existsSync(path.join(c.dataDir, 'whoop', 'u-u1.json')));
+  const off = createIntegrations({ dataDir: c.dataDir, secret: SECRET, env: {}, now: () => c.clock.t });
+  off.removeUser('u1');
+  assert.equal(fs.existsSync(path.join(c.dataDir, 'whoop', 'u-u1.json')), false);
+  assert.equal(fs.existsSync(path.join(c.dataDir, 'integrations', 'u-u1.json')), false);
+});

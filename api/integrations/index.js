@@ -19,6 +19,7 @@
  * The OAuth kind (Strava, PR #478, next) adds authorizeUrl(uid, state) and callback(query) for a
  * GET /api/integrations/oauth/callback route, and refresh(reveal) for an expired token; the
  * store, the sealing, the outbox and the log are already the ones it will use. */
+import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { createStore } from './store.js';
@@ -116,6 +117,10 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
   const pendingStates = new Map();   // state -> { u, p, e, redirectUri }
   const PENDING_MAX = 1000;
   const shortState = () => crypto.randomBytes(6).toString('base64url');
+  // Per profile, the number of the latest WHOOP sign-in started (or disconnect): a callback that
+  // comes back after a newer one, or after a disconnect, is stale.
+  const attempts = new Map();
+  const bump = uid => { const n = (attempts.get(uid) || 0) + 1; attempts.set(uid, n); return n; };
   const signState = o => { const b = Buffer.from(JSON.stringify(o)).toString('base64url'); return b + '.' + crypto.createHmac('sha256', stateKey).update(b).digest('base64url'); };
   const readState = st => {
     if (!stateKey || typeof st !== 'string' || st.length > 600) return null;
@@ -213,6 +218,8 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
       const rec = own(uid, id);
       store.remove(uid, id);
       outbox.dropConnection(uid, id);
+      // A sign-in still on its way back must not bring the connection back.
+      bump(uid);
       return { ok: true, provider: rec.provider, label: rec.label };
     },
 
@@ -246,7 +253,7 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
         if (pendingStates.size >= PENDING_MAX) fail(429, 'too many sign-ins waiting, try again in a few minutes', 'rate');
         let state = shortState();
         while (pendingStates.has(state)) state = shortState();
-        pendingStates.set(state, { u: uid, p: p.id, e: now() + OAUTH_STATE_MS, redirectUri });
+        pendingStates.set(state, { u: uid, p: p.id, e: now() + OAUTH_STATE_MS, redirectUri, seq: bump(uid) });
         return p.authorizeUrl({ state, redirectUri });
       }
       const state = signState({ u: uid, p: p.id, n: crypto.randomBytes(9).toString('base64url'), e: now() + OAUTH_STATE_MS });
@@ -259,14 +266,14 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
     async oauthFinish(query, sessionUid = null) {
       if (!active) off();
       const raw = query?.state;
-      let st, redirectUri;
+      let st, redirectUri, seq = null;
       if (typeof raw === 'string' && raw.length === 8) {
         // Short state: looked up and taken at once, so it works one time only.
         const pend = pendingStates.get(raw);
         pendingStates.delete(raw);
         if (!pend || !(pend.e > now())) fail(400, 'that sign-in link is old or not ours, start again', 'state');
         if (sessionUid && sessionUid !== pend.u) fail(403, 'signed in as someone else', 'state', pend.p);
-        st = pend; redirectUri = pend.redirectUri;
+        st = pend; redirectUri = pend.redirectUri; seq = pend.seq;
       } else {
         st = readState(raw);
         if (!st || typeof st.u !== 'string' || !(st.e > now())) fail(400, 'that sign-in link is old or not ours, start again', 'state');
@@ -280,6 +287,11 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
       let made;
       try { made = await p.callback(query || {}, { redirectUri }); }
       catch (e) { if (e && typeof e === 'object' && !e.provider) e.provider = p.id; throw e; }
+      // After the wait for the provider: a newer sign-in started, a disconnect, or the account
+      // deleted meanwhile, and this one is stale; storing it would undo what happened since.
+      if (seq != null && (attempts.get(st.u) !== seq || (deps.users && !deps.users().some(u => u.id === st.u)))) {
+        fail(409, 'a newer sign-in or a disconnect happened meanwhile, start again', 'stale', p.id);
+      }
       for (const old of store.list(st.u).filter(r => r.provider === p.id)) { store.remove(st.u, old.id); outbox.dropConnection(st.u, old.id); }
       const id = newId('c');
       const secrets = Object.fromEntries(Object.entries(made.secrets || {}).map(([k, v]) => [k, store.seal(st.u, id, k, v)]));
@@ -330,7 +342,12 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
     },
 
     removeUser(uid) {
-      if (!store) return;
+      // Sign-ins on their way back are void, and whatever is on disk goes, whether or not the
+      // providers are switched on at this start (an admin may have turned WHOOP off since).
+      for (const [k, v] of pendingStates) if (v.u === uid) pendingStates.delete(k);
+      bump(uid);
+      whoopStore.remove(uid);
+      if (!store) { try { fs.unlinkSync(path.join(dir, 'u-' + String(uid || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) + '.json')); } catch { /* none */ } return; }
       store.removeUser(uid);
       outbox.dropUser(uid);
     },
