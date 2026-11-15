@@ -3646,6 +3646,8 @@ coachJobs.setProposalHook((uid, pending) => {
     tag: 'coach-proposal', url: '#/coach'
   });
 });
+// WHOOP pulls into profiles through the same writer trainers use (writeStateAs).
+integrations.attach({ users: () => db.users.filter(u => !u.disabled), readState: readStateCached, writeState: writeStateAs });
 integrations.start();
 startCadence({ users: () => db.users.filter(u => !u.disabled), userNow, skip: uid => !stateSummary(uid)?.consent });
 startWarmup();

@@ -29,6 +29,8 @@ import { webhookProvider } from './providers/webhook.js';
 import { stravaProvider } from './providers/strava.js';
 import { whoopProvider } from './providers/whoop.js';
 import { createWhoopClient } from './whoop/client.js';
+import { createWhoopStore } from './whoop/store.js';
+import { createWhoopSync } from './whoop/sync.js';
 
 const on = v => /^(1|true|yes|on)$/i.test(String(v || ''));
 
@@ -83,6 +85,12 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
   if (active) ensure();
   // WHOOP pulls: its requests go through one client with a per-connection gate (whoop/client.js).
   const whoop = providers.whoop ? createWhoopClient({ provider: providers.whoop, store, now }) : null;
+  // The profile access server.js hands over once its own pieces exist (attach), and what WHOOP
+  // data becomes in a profile (projectors, one per capability).
+  const deps = {};
+  const projectors = [];
+  const whoopStore = createWhoopStore({ dataDir });
+  const whoopSync = whoop ? createWhoopSync({ client: whoop, conns: store, wstore: whoopStore, now, deps, projectors }) : null;
 
   // What a provider may do besides reading its secrets: store refreshed ones (an OAuth token that
   // was renewed), and read the connection's own settings.
@@ -319,10 +327,16 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
       outbox.dropUser(uid);
     },
 
-    start(everyMs) { if (active) outbox.start(everyMs); },
-    stop() { outbox?.stop(); },
+    /** server.js: the users, and the profile reader and writer (writeStateAs), once they exist. */
+    attach({ users, readState, writeState } = {}) { Object.assign(deps, { users, readState, writeState }); },
+
+    start(everyMs) { if (active) outbox.start(everyMs); whoopSync?.start(); },
+    stop() { outbox?.stop(); whoopSync?.stop(); },
     // For the tests.
     _whoop: () => whoop,
+    _whoopSync: () => whoopSync,
+    _whoopStore: () => whoopStore,
+    _projectors: projectors,
     _outbox: () => outbox,
     _store: () => store,
   };

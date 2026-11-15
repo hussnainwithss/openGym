@@ -1,0 +1,178 @@
+/* The WHOOP pull: for every connected profile, bring the WHOOP history into the WHOOP store
+ * (whoop/store.js), then apply it to the profile through the server's one safe writer
+ * (writeStateAs, injected). A 60 s tick decides who is due; each person's run holds their
+ * connection's gate (whoop/client.js), so it never overlaps a refresh, a webhook or a check.
+ *
+ * Commit order, so a crash at any step replays cleanly:
+ *   1. validated records (and the cursor that found them) saved, with proj.dirty set
+ *   2. one profile write applying every projection, synchronous
+ *   3. proj.dirty cleared
+ * A crash after 1 finds dirty on the next tick and applies the same records again; projections
+ * are idempotent (same ids, same values: no write). A profile with no server document yet (409)
+ * keeps dirty and is tried again next tick.
+ *
+ * Backfill: every page of each collection, from the start of the person's history to a fixed end
+ * taken when the backfill began, at most MAX_PAGES requests per person per tick. */
+import { COLLECTIONS, emptyDoc } from './store.js';
+import { NORMALIZE, keyOf } from './normalize.js';
+import { WhoopError } from './client.js';
+
+export const PAGE = 25;
+export const MAX_PAGES = 40;
+export const TICK_MS = 60_000;
+export const POLL_MS = 15 * 60_000;
+export const PATHS = { cycle: '/v2/cycle', sleep: '/v2/activity/sleep', recovery: '/v2/recovery', workout: '/v2/activity/workout' };
+
+const iso = ms => new Date(ms).toISOString();
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = {}, projectors = [] }) {
+  let running = false;
+  let timer = null;
+
+  // The connection, if it is still the one this run started with (not disconnected, replaced or
+  // deleted meanwhile).
+  const alive = (uid, connId) => {
+    const rec = conns.get(uid, connId);
+    if (!rec || rec.provider !== 'whoop') return null;
+    if (deps.users && !deps.users().some(u => u.id === uid)) return null;
+    return rec;
+  };
+
+  function note(uid, connId, patch) {
+    if (!alive(uid, connId)) return;
+    conns.update(uid, connId, r => {
+      if (patch.info) r.info = { ...r.info, ...patch.info };
+      if (patch.ok) { r.lastOk = now(); if (r.status !== 'attention') { r.failures = 0; r.lastError = null; } }
+      if (patch.error) { r.failures = (r.failures || 0) + 1; r.lastError = { at: now(), msg: patch.error.msg, code: patch.error.code }; }
+    });
+  }
+
+  /** Records from one page into the doc. → whether anything changed. */
+  function absorb(doc, coll, records) {
+    let changed = false;
+    const t = now();
+    for (const raw of records) {
+      const r = NORMALIZE[coll](raw, t);
+      if (!r) continue;
+      const k = keyOf(coll, r);
+      if (coll === 'sleep' && r.cycle) doc.sleepCycle[r.id] = r.cycle;
+      if (coll === 'recovery' && r.sleep) doc.sleepCycle[r.sleep] = r.cycle;
+      if (!same(doc.records[coll][k], r)) { doc.records[coll][k] = r; changed = true; }
+      const pend = doc.pending[coll];
+      const i = pend.indexOf(k);
+      if (r.st === 'pending' && i < 0) pend.push(k);
+      else if (r.st !== 'pending' && i >= 0) pend.splice(i, 1);
+    }
+    return changed;
+  }
+
+  /** One page of a collection listing. → { records, next } or throws WhoopError. */
+  async function page(uid, connId, coll, cur) {
+    const r = await client.get(uid, connId, PATHS[coll], {
+      limit: PAGE, ...(cur.start ? { start: iso(cur.start) } : {}), end: iso(cur.end), ...(cur.next ? { nextToken: cur.next } : {}),
+    });
+    if (r.status !== 200 || !Array.isArray(r.data?.records)) throw new WhoopError('http', `WHOOP sent an unexpected listing (${r.status}).`, { retry: true });
+    const next = typeof r.data.next_token === 'string' && r.data.next_token ? r.data.next_token.slice(0, 512) : null;
+    return { records: r.data.records, next };
+  }
+
+  /** Applies the stored history to the profile when it is dirty. → true when done. */
+  function project(uid, connId, doc) {
+    if (!doc.proj.dirty) return true;
+    if (projectors.length && deps.writeState) {
+      try {
+        deps.writeState(uid, (S, t) => {
+          let changed = false;
+          for (const p of projectors) changed = p(S, doc, t, { now: now() }) || changed;
+          return changed;
+        }, { skipIf: changed => !changed });
+      } catch (e) {
+        if (e?.status === 409 || e?.status === 503) return false;   // no server document yet, or unreadable: next tick
+        throw e;
+      }
+    }
+    if (!alive(uid, connId)) return false;
+    doc.proj = { ...doc.proj, dirty: false, at: now() };
+    wstore.save(uid, doc);
+    return true;
+  }
+
+  function backfillLabel(doc) {
+    const done = COLLECTIONS.filter(c => doc.cursors[c]?.done).length;
+    if (done === COLLECTIONS.length) return 'done';
+    const n = COLLECTIONS.reduce((a, c) => a + Object.keys(doc.records[c]).length, 0);
+    return `${n} records so far`;
+  }
+
+  /** One person's run, with their connection's gate held. */
+  async function runOne(uid, connId) {
+    return client.withGate(uid, connId, async () => {
+      const conn = alive(uid, connId);
+      if (!conn || conn.paused || conn.status === 'attention') return;
+      if (deps.readState) {
+        const S = deps.readState(uid);
+        if (S?.modules?.integrations === false) return;
+      }
+      let doc = wstore.load(uid);
+      if (doc.whoopUser == null) doc.whoopUser = conn.info.whoopUser || null;
+      let budget = MAX_PAGES;
+      if (COLLECTIONS.every(c => doc.cursors[c]?.done) && !doc.proj.dirty) return;
+      try {
+        for (const coll of COLLECTIONS) {
+          const cur = doc.cursors[coll] || (doc.cursors[coll] = { start: null, end: now(), next: null, done: false });
+          while (!cur.done && budget > 0) {
+            const { records, next } = await page(uid, connId, coll, cur);
+            budget--;
+            if (next && next === cur.next) throw new WhoopError('http', 'WHOOP repeated a page.', { retry: true });
+            const changed = absorb(doc, coll, records);
+            cur.next = next;
+            if (!next) { cur.done = true; cur.scanEnd = cur.end; }
+            if (changed) doc.proj.dirty = true;
+            if (!alive(uid, connId)) return;
+            wstore.save(uid, doc);
+          }
+        }
+        project(uid, connId, doc);
+        note(uid, connId, { ok: true, info: { backfill: backfillLabel(doc) } });
+      } catch (e) {
+        if (!(e instanceof WhoopError)) throw e;
+        // What was fetched before the failure is saved; apply it.
+        if (doc.proj.dirty) { try { project(uid, connId, doc); } catch (pe) { console.error('whoop: projection', pe.message); } }
+        if (e.code !== 'reconnect' && e.code !== 'gone') note(uid, connId, { error: { msg: e.message, code: e.code }, info: { backfill: backfillLabel(doc) } });
+        if (e.code === 'rate') throw e;
+      }
+    });
+  }
+
+  /** Every connected profile that is due. A rate limit ends the whole tick. */
+  async function tick() {
+    if (running) return;
+    running = true;
+    try {
+      const users = deps.users ? deps.users() : [];
+      for (const u of users) {
+        for (const c of conns.list(u.id).filter(r => r.provider === 'whoop')) {
+          if (now() < client.blockedUntil()) return;
+          try { await runOne(u.id, c.id); }
+          catch (e) {
+            if (e instanceof WhoopError && e.code === 'rate') return;
+            console.error('whoop: sync of a profile failed', e.message);
+          }
+        }
+      }
+    } finally { running = false; }
+  }
+
+  return {
+    tick,
+    runOne,
+    start(everyMs = TICK_MS) {
+      if (timer) return;
+      timer = setInterval(() => { tick().catch(e => console.error('whoop tick', e)); }, everyMs);
+      timer.unref?.();
+    },
+    stop() { if (timer) clearInterval(timer); timer = null; },
+    emptyDoc,
+  };
+}
