@@ -96,7 +96,7 @@ const list = v => (Array.isArray(v) ? v : [])
 export const STAMPED_MAPS = ['balanceOverrides', 'loadKind', 'plates', 'dbLoad', 'dumbbells', 'stackWeights', 'exUnit', 'dayNotes', 'dayPhotos', 'exMerged', 'exGym', 'sessionTargets', 'exMedia', 'recoverySessions', 'gymNotes', 'journalFolders', 'dayForm', 'activities', 'whoopActs', 'whoopChoice']
 // Keys only the server writes (WHOOP data, fork; api/sync-stamps.js SERVER_OWNED): the server keeps
 // its copy whatever a device sends, and a device takes the server's copy whole when it merges one.
-export const SERVER_OWNED = ['whoopActs']
+export const SERVER_OWNED = ['whoopActs', 'whoopSeen']
 /** `merged` with the server's copy of every server-owned key (mutates and returns it). */
 export function takeServerOwned(merged, server) {
   if (!merged || typeof merged !== 'object') return merged

@@ -77,7 +77,7 @@ const PER_KEY = new Set(['week', 'dayPlan', 'exNotes', 'barWeights', 'exAliases'
 export const STAMPED_MAPS = ['balanceOverrides', 'loadKind', 'plates', 'dbLoad', 'dumbbells', 'stackWeights', 'exUnit', 'dayNotes', 'dayPhotos', 'exMerged', 'exGym', 'sessionTargets', 'exMedia', 'recoverySessions', 'gymNotes', 'journalFolders', 'dayForm', 'activities', 'whoopActs', 'whoopChoice'];
 // Keys only the server writes (WHOOP data, fork): a device's copy is never stored (server.js
 // commitState puts the stored one back) and a device takes the server's copy whole on a pull.
-export const SERVER_OWNED = ['whoopActs'];
+export const SERVER_OWNED = ['whoopActs', 'whoopSeen'];
 const ENTRY_META = new Set(['id', '_ts', '_f', '_u']);
 const ENTRY_LISTS = ['routines', 'customEx', 'equipProfiles', 'gymCards', 'workouts'];
 

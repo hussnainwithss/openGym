@@ -33,6 +33,7 @@ import { createWhoopClient } from './whoop/client.js';
 import { createWhoopStore } from './whoop/store.js';
 import { createWhoopSync } from './whoop/sync.js';
 import { projectActivities } from './whoop/activities.js';
+import { projectWeight } from './whoop/weigh-ins.js';
 
 const on = v => /^(1|true|yes|on)$/i.test(String(v || ''));
 
@@ -97,7 +98,7 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
   // The profile access server.js hands over once its own pieces exist (attach), and what WHOOP
   // data becomes in a profile (projectors, one per capability).
   const deps = {};
-  const projectors = [projectActivities];
+  const projectors = [projectActivities, projectWeight];
   const whoopStore = createWhoopStore({ dataDir });
   const seenTraces = new Map();   // WHOOP webhook trace ids already taken
   const whoopSync = whoop ? createWhoopSync({ client: whoop, conns: store, wstore: whoopStore, now, deps, projectors }) : null;

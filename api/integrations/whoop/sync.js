@@ -14,7 +14,8 @@
  * Backfill: every page of each collection, from the start of the person's history to a fixed end
  * taken when the backfill began, at most MAX_PAGES requests per person per tick. */
 import { COLLECTIONS, emptyDoc } from './store.js';
-import { NORMALIZE, keyOf } from './normalize.js';
+import { NORMALIZE, keyOf, body as normalizeBody } from './normalize.js';
+import { observationId, dayAt, timeAt } from './weigh-ins.js';
 import { WhoopError } from './client.js';
 
 export const PAGE = 25;
@@ -185,14 +186,51 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
     return { records: r.data.records, next };
   }
 
+  // The person's offset from UTC now, in minutes: from their latest WHOOP sleep or cycle (WHOOP
+  // records where it was), else the zone their reminders use, else the server's.
+  function offsetNow(uid, doc) {
+    let best = null;
+    for (const c of ['sleep', 'cycle']) for (const r of Object.values(doc.records[c])) if (!best || r.start > best.start) best = r;
+    if (best && Number.isFinite(best.off)) return best.off;
+    const tz = deps.readState?.(uid)?.reminder?.tz;
+    if (typeof tz === 'string' && tz) {
+      try {
+        const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longOffset' }).formatToParts(new Date(now()));
+        const m = /GMT([+-])(\d{2}):?(\d{2})?/.exec(parts.find(p => p.type === 'timeZoneName')?.value || '');
+        if (m) return (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] || 0));
+      } catch { /* an unknown zone: the server's */ }
+    }
+    return -new Date(now()).getTimezoneOffset();
+  }
+
+  /** WHOOP's body measurement: a changed weight becomes an observation, its day and time fixed
+   *  now, saved before anything else happens with it. */
+  async function observeBody(uid, connId, doc) {
+    const r = await client.get(uid, connId, '/v2/user/measurement/body');
+    if (r.status !== 200) return;
+    const b = normalizeBody(r.data);
+    if (!b) return;
+    const t = now();
+    if (doc.body?.kg !== b.kg) {
+      const off = offsetNow(uid, doc);
+      doc.obs.push({ id: observationId(doc.whoopUser, t), kg: b.kg, observedAt: t, day: dayAt(t, off), hhmm: timeAt(t, off), off });
+      doc.proj.dirty = true;
+    }
+    doc.body = { ...b, at: t };
+    if (!alive(uid, connId)) throw new WhoopError('gone', 'Disconnected.');
+    save(uid, doc);
+  }
+
   /** Applies the stored history to the profile when it is dirty. → true when done. */
   function project(uid, connId, doc) {
     if (!doc.proj.dirty) return true;
+    // `acked`: the weight observations the write put in the profile (whoop/weigh-ins.js).
+    const ctx = { now: now(), acked: [] };
     if (projectors.length && deps.writeState) {
       try {
         deps.writeState(uid, (S, t) => {
           let changed = false;
-          for (const p of projectors) changed = p(S, doc, t, { now: now() }) || changed;
+          for (const p of projectors) changed = p(S, doc, t, ctx) || changed;
           return changed;
         }, { skipIf: changed => !changed });
       } catch (e) {
@@ -201,6 +239,8 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
       }
     }
     if (!alive(uid, connId)) return false;
+    // Only now that the profile holds them do the observations leave the WHOOP store.
+    if (ctx.acked.length) doc.obs = doc.obs.filter(o => !ctx.acked.includes(o.id));
     doc.proj = { ...doc.proj, dirty: false, at: now() };
     save(uid, doc);
     return true;
@@ -259,6 +299,9 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
           if (!doc.polledAt) doc.polledAt = Math.min(...COLLECTIONS.map(c => doc.cursors[c].end));
           let polled = false;
           if (pollDue()) { budget = await poll(uid, connId, doc, budget); polled = !doc.poll; }
+          // WHOOP's weight has no webhook and no date: read with every completed poll, and once
+          // as soon as the history is in.
+          if ((polled || !doc.body) && budget > 0) { await observeBody(uid, connId, doc); budget--; }
           // Webhook ids at once; pending scores and delete candidates with each completed poll.
           budget = await settleIds(uid, connId, doc, budget, polled ? ['due', 'candidates', 'pending'] : ['due']);
         }

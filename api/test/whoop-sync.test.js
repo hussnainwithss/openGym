@@ -524,3 +524,97 @@ test('the server’s week streak leaves out a WHOOP strength session the person 
   assert.equal(streakWalk(S, '2026-11-11').thisWeekDone, true);
   assert.equal(streakWalk({ ...S, whoopChoice: { wL: { ov: 'skip', _ts: 2 } } }, '2026-11-11').thisWeekDone, false);
 });
+
+/* ---- whoop-bodyweight: WHOOP's weight, when it changes ---- */
+
+const whoopReadings = S => (S.bodyweight || []).flatMap(d => (d.ins || []).filter(r => r.src === 'whoop').map(r => ({ d: d.d, ...r })));
+
+test('WHOOP’s weight is logged once when the history is in, again only when it changes, in the profile’s unit', async () => {
+  const w = fakeWhoop();
+  w.body.weight_kilogram = 80;
+  const c = await backfilled({ w, S: { unit: 'lb' } });
+  let rs = whoopReadings(c.profile.S);
+  assert.equal(rs.length, 1);
+  assert.equal(rs[0].w, 176.4);   // 80 kg in lb, to 0.1
+  const writes = c.profile.writes;
+  c.clock.t += 16 * MIN;
+  await c.sync.tick();
+  assert.equal(c.profile.writes, writes, 'unchanged weight wrote the profile');
+  w.body.weight_kilogram = 79.95;   // any change counts, however small
+  c.clock.t += 16 * MIN;
+  await c.sync.tick();
+  rs = whoopReadings(c.profile.S);
+  assert.equal(rs.length, 2);
+  assert.notEqual(rs[0].id, rs[1].id);
+  assert.deepEqual(c.doc().obs, []);
+});
+
+test('a weight observed but not yet in the profile when the server stops goes in once, with the same id', async () => {
+  const w = fakeWhoop();
+  const c = await setup({ w });
+  // the profile write fails once (crash), the observation stays in the WHOOP store
+  let fail = true;
+  c.h.attach({ users: () => c.profile.users, readState: () => c.profile.S, writeState: (uid, fn, o) => {
+    if (fail) { fail = false; throw new Error('crash'); }
+    const next = JSON.parse(JSON.stringify(c.profile.S)); const r = fn(next, c.clock.t); if (o?.skipIf?.(r)) return r; c.profile.S = next; c.profile.writes++; return r;
+  } });
+  await c.sync.tick().catch(() => {});
+  assert.equal(c.doc().obs.length, 1);
+  const id = c.doc().obs[0].id;
+  await c.sync.tick();
+  assert.deepEqual(whoopReadings(c.profile.S).map(r => r.id), [id]);
+  // written, but the WHOOP store never heard: replayed, nothing twice
+  const store = c.h._whoopStore();
+  const doc = store.load('u1');
+  doc.obs.push({ ...c.profile.S.bodyweight[0], id, kg: 80, observedAt: c.clock.t, day: c.profile.S.bodyweight[0].d, hhmm: '12:00', off: 0 });
+  doc.proj.dirty = true;
+  store.save('u1', doc);
+  c.clock.t += MIN;
+  await c.sync.tick();
+  assert.equal(whoopReadings(c.profile.S).length, 1);
+});
+
+test('a WHOOP weight the person deleted, or wiped with Reset, does not come back on a replay; a later change still does', async () => {
+  const w = fakeWhoop();
+  const c = await backfilled({ w });
+  const id = whoopReadings(c.profile.S)[0].id;
+  const day = c.profile.S.bodyweight[0].d;
+  // deleted, then the day typed in again; the observation is replayed
+  c.profile.S.bodyweight = [{ d: day, w: 81, t: c.clock.t + 1, ins: [{ id: 'typed', at: '07:00', w: 81, t: c.clock.t + 1 }] }];
+  const store = c.h._whoopStore();
+  const replay = () => { const d = store.load('u1'); d.obs.push({ id, kg: 80, observedAt: T0, day, hhmm: '12:00', off: 0 }); d.proj.dirty = true; store.save('u1', d); };
+  replay();
+  c.clock.t += MIN;
+  await c.sync.tick();
+  assert.deepEqual(c.profile.S.bodyweight[0].ins.map(r => r.id), ['typed']);
+  // Reset everything: no weigh-ins at all; whoopSeen is the server's and stays
+  c.profile.S.bodyweight = [];
+  replay();
+  c.clock.t += MIN;
+  await c.sync.tick();
+  assert.deepEqual(c.profile.S.bodyweight, []);
+  w.body.weight_kilogram = 78;
+  c.clock.t += 16 * MIN;
+  await c.sync.tick();
+  assert.equal(whoopReadings(c.profile.S).length, 1);
+});
+
+test('the day and time are the person’s, fixed when the weight was observed', async () => {
+  const w = fakeWhoop();
+  // last night's sleep says the person is at +03:00; 20:55 UTC is 23:55 there
+  w.sleep.push(rec.sleep({ cycle: 1, start: T0 - 2 * DAY, end: T0 - 2 * DAY + 7 * 3600_000, offset: '+03:00' }));
+  const clock = { t: Date.UTC(2026, 10, 14, 20, 55) };
+  let fail = true;
+  const c = await setup({ w, clock });
+  c.h.attach({ users: () => c.profile.users, readState: () => c.profile.S, writeState: (uid, fn, o) => {
+    if (fail) { fail = false; throw Object.assign(new Error('not synced'), { status: 409 }); }
+    const next = JSON.parse(JSON.stringify(c.profile.S)); const r = fn(next, c.clock.t); if (o?.skipIf?.(r)) return r; c.profile.S = next; return r;
+  } });
+  await c.sync.tick();
+  // written only after midnight there
+  c.clock.t += 10 * MIN;
+  await c.sync.tick();
+  const [r] = whoopReadings(c.profile.S);
+  assert.equal(r.d, '2026-11-14');
+  assert.equal(r.at, '23:55');
+});
