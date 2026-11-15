@@ -22,6 +22,9 @@ export const PAGE = 25;
 export const MAX_PAGES = 40;
 export const TICK_MS = 60_000;
 export const POLL_MS = 15 * 60_000;
+// Raised when what WHOOP data becomes in a profile changes (the projectors): the next run applies
+// the stored history again, once, without fetching anything. 2: Strength Trainer and recovery sports.
+export const PROJ_VERSION = 2;
 export const PATHS = { cycle: '/v2/cycle', sleep: '/v2/activity/sleep', recovery: '/v2/recovery', workout: '/v2/activity/workout' };
 export const WINDOW_MS = 3 * 86_400_000;
 export const OVERLAP_MS = 3600_000;
@@ -274,6 +277,7 @@ export function createWhoopSync({ client, conns, wstore, now = Date.now, deps = 
         save(uid, doc);
       }
       wstore.takeDue(uid, doc);
+      if (doc.proj.version !== PROJ_VERSION) { doc.proj.dirty = true; doc.proj.version = PROJ_VERSION; }
       let budget = MAX_PAGES;
       const backfilled = () => COLLECTIONS.every(c => doc.cursors[c]?.done);
       const waiting = () => COLLECTIONS.some(c => doc.due[c].length);

@@ -27,7 +27,20 @@ const SPORT = {
   dance: 'dance', barre: 'dance',
 };
 // Sessions that are strength work: they may duplicate a workout logged in openGym.
-export const STRENGTH = new Set(['weightlifting', 'powerlifting', 'functional fitness', 'strength trainer', 'crossfit']);
+// `weightlifting msk` is what WHOOP's Strength Trainer records.
+export const STRENGTH = new Set(['weightlifting', 'weightlifting msk', 'powerlifting', 'functional fitness', 'strength trainer', 'crossfit']);
+// WHOOP "sports" that are recovery, not training: they become recovery sessions
+// (frontend/src/lib/recovery-sessions.js, kinds sauna / cold / massage / other), not activities.
+export const RECOVERY = {
+  sauna: { kind: 'sauna' }, 'steam room': { kind: 'sauna', note: 'Steam room' },
+  'ice bath': { kind: 'cold' }, 'cold plunge': { kind: 'cold' },
+  'warm bath': { kind: 'other', note: 'Warm bath' }, 'hot tub': { kind: 'other', note: 'Hot tub' },
+  massage: { kind: 'massage' }, 'massage therapy': { kind: 'massage' },
+};
+// Names WHOOP gives that read better as something else.
+const TITLE = { 'weightlifting msk': 'Strength Trainer' };
+/** WHOOP's sport name as these tables key it: 'weightlifting_msk', 'warm-bath' → 'weightlifting msk', 'warm bath'. */
+export const sportKey = name => String(name || '').toLowerCase().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
 
 /** The activity id of a WHOOP workout: 'w' + 16 characters of the SHA-256 of its UUID. */
 export const whoopActivityId = uuid => 'w' + crypto.createHash('sha256').update(String(uuid)).digest('base64url').slice(0, 16);
@@ -38,18 +51,19 @@ export function localDay(ms, offMin) {
   const d = new Date(ms + offMin * 60_000);
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
-const title = s => s.replace(/\b\w/g, c => c.toUpperCase()).slice(0, 80);
+const title = k => (TITLE[k] || k.replace(/\b\w/g, c => c.toUpperCase())).slice(0, 80);
 
 /** A normalized WHOOP workout (whoop/normalize.js) as activity fields (no _ts). */
 export function activityOf(r, whoopUser) {
   const durMs = r.end - r.start;
-  const sport = SPORT[r.sport] || 'other';
+  const key = sportKey(r.sport);
+  const sport = SPORT[key] || 'other';
   const out = {
     d: localDay(r.start, r.off), sport, min: Math.min(1440, Math.max(1, Math.round(durMs / 60_000))),
     at: r.start, durMs, src: 'whoop', wu: r.id, ...(whoopUser ? { wa: whoopUser } : {}),
   };
-  if (sport === 'other' && r.sport) out.title = title(r.sport);
-  if (STRENGTH.has(r.sport)) out.st = 1;
+  if (sport === 'other' && key) out.title = title(key);
+  if (STRENGTH.has(key)) out.st = 1;
   if (r.km > 0 && r.km < 1000) out.km = Math.round(r.km * 100) / 100;
   for (const k of ['strain', 'hr', 'hrMax', 'kj']) if (r[k] != null) out[k] = Math.round(r[k] * 10) / 10;
   return out;
@@ -62,12 +76,31 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /** The whoop-activities projector: new WHOOP workouts into S.activities, later changes and
  *  deletions into S.whoopActs. → whether S changed. */
+/** A WHOOP recovery "sport" (a sauna, an ice bath) as a recovery session (no _ts), or null. */
+export function recoveryOf(r) {
+  const rec = RECOVERY[sportKey(r.sport)];
+  if (!rec) return null;
+  return { d: localDay(r.start, r.off), kind: rec.kind, min: Math.min(600, Math.max(1, Math.round((r.end - r.start) / 60_000))), note: rec.note ? rec.note + ' (WHOOP)' : 'WHOOP' };
+}
+
 export function projectActivities(S, doc, t) {
   const map = isMap(S.activities) ? S.activities : {};
   const acts = isMap(S.whoopActs) ? S.whoopActs : {};
-  let added = false, updated = false;
+  const recs = isMap(S.recoverySessions) ? S.recoverySessions : {};
+  let added = false, updated = false, recAdded = false;
   for (const r of Object.values(doc.records.workout)) {
     const id = whoopActivityId(r.id);
+    // A sauna or an ice bath is a recovery session: written once, like an activity. One already
+    // imported as an activity (before this mapping) is hidden through whoopActs unless the person
+    // edited it, and the recovery session takes its place.
+    const rec = recoveryOf(r);
+    if (rec) {
+      const had = map[id];
+      if (isMap(had) && had.edited === 1) continue;   // the person made that activity theirs: no second copy
+      if (!Object.hasOwn(recs, id)) { recs[id] = { ...rec, _ts: t }; recAdded = true; }
+      if (isMap(had) && had.src === 'whoop' && acts[id]?.gone !== 1) { acts[id] = { gone: 1, _ts: t }; updated = true; }
+      continue;
+    }
     if (!Object.hasOwn(map, id)) {
       map[id] = { ...activityOf(r, doc.whoopUser), _ts: t };
       added = true;
@@ -95,5 +128,6 @@ export function projectActivities(S, doc, t) {
   }
   if (added) S.activities = map;
   if (updated) S.whoopActs = acts;
-  return added || updated;
+  if (recAdded) S.recoverySessions = recs;
+  return added || updated || recAdded;
 }

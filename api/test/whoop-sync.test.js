@@ -741,3 +741,49 @@ test('a WHOOP day carries its cycle’s steps, scored or not; a cycle without a 
   assert.equal(days['2026-11-12'].strain, undefined);
   assert.equal('steps' in days['2026-11-13'], false);
 });
+
+/* ---- WHOOP sport names as WHOOP writes them (weightlifting_msk, warm-bath) ---- */
+
+test('Strength Trainer sessions are strength work, and baths, steam and saunas are recovery sessions', async () => {
+  const w = fakeWhoop();
+  const msk = rec.workout({ start: T0 - DAY, end: T0 - DAY + 50 * MIN, sport: 'weightlifting_msk' });
+  const steam = rec.workout({ start: T0 - 2 * DAY, end: T0 - 2 * DAY + 15 * MIN, sport: 'steam-room' });
+  const ice = rec.workout({ start: T0 - 3 * DAY, end: T0 - 3 * DAY + 4 * MIN, sport: 'ice-bath' });
+  const bath = rec.workout({ start: T0 - 4 * DAY, end: T0 - 4 * DAY + 20 * MIN, sport: 'warm-bath' });
+  w.workout.push(msk, steam, ice, bath);
+  const c = await backfilled({ w });
+  const S = c.profile.S;
+  const a = S.activities[whoopActivityId(msk.id)];
+  assert.equal(a.st, 1);
+  assert.equal(a.title, 'Strength Trainer');
+  for (const r of [steam, ice, bath]) assert.equal(S.activities[whoopActivityId(r.id)], undefined);
+  const R = id => (({ _ts, ...x }) => x)(S.recoverySessions[whoopActivityId(id)]);
+  assert.deepEqual(R(steam.id), { d: '2026-11-13', kind: 'sauna', min: 15, note: 'Steam room (WHOOP)' });
+  assert.deepEqual(R(ice.id), { d: '2026-11-12', kind: 'cold', min: 4, note: 'WHOOP' });
+  assert.deepEqual(R(bath.id), { d: '2026-11-11', kind: 'other', min: 20, note: 'Warm bath (WHOOP)' });
+});
+
+test('a profile imported with the old mapping is corrected on the next run, without a fetch, and an edited one is left alone', async () => {
+  const w = fakeWhoop();
+  const msk = rec.workout({ start: T0 - DAY, end: T0 - DAY + 50 * MIN, sport: 'weightlifting_msk' });
+  const bath = rec.workout({ start: T0 - 2 * DAY, end: T0 - 2 * DAY + 20 * MIN, sport: 'warm-bath' });
+  const mine = rec.workout({ start: T0 - 3 * DAY, end: T0 - 3 * DAY + 10 * MIN, sport: 'ice-bath' });
+  w.workout.push(msk, bath, mine);
+  const c = await backfilled({ w });
+  const [im, ib, ix] = [msk, bath, mine].map(r => whoopActivityId(r.id));
+  // what the first release wrote: all three as plain 'other' activities, one edited by the person
+  const old = (r, extra = {}) => ({ d: '2026-11-1' + (4 - [msk, bath, mine].indexOf(r)), sport: 'other', min: 10, at: r.start, durMs: 600000, src: 'whoop', wu: r.id, wa: '4242', title: 'X', ...extra, _ts: 5 });
+  c.profile.S = { activities: { [im]: old(msk), [ib]: old(bath), [ix]: old(mine, { edited: 1, note: 'mine' }) } };
+  const store = c.h._whoopStore();
+  const d = store.load('u1'); d.proj.version = 1; store.save('u1', d);
+  const asked = w.calls.length;
+  await c.sync.tick();
+  assert.equal(w.calls.length, asked, 'fetched again');
+  const S = c.profile.S;
+  assert.equal(effectiveActivity(S, im, S.activities[im]).st, 1);
+  assert.equal(effectiveActivity(S, im, S.activities[im]).title, 'Strength Trainer');
+  assert.equal(effectiveActivity(S, ib, S.activities[ib]), null);
+  assert.equal(S.recoverySessions[ib].kind, 'other');
+  assert.equal(effectiveActivity(S, ix, S.activities[ix]).note, 'mine');
+  assert.equal(S.recoverySessions?.[ix], undefined);
+});
