@@ -28,6 +28,7 @@ import { detectEvents, eventData, envelope, testData, EVENTS } from './events.js
 import { webhookProvider } from './providers/webhook.js';
 import { stravaProvider } from './providers/strava.js';
 import { whoopProvider } from './providers/whoop.js';
+import { createWhoopClient } from './whoop/client.js';
 
 const on = v => /^(1|true|yes|on)$/i.test(String(v || ''));
 
@@ -80,6 +81,8 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
     });
   };
   if (active) ensure();
+  // WHOOP pulls: its requests go through one client with a per-connection gate (whoop/client.js).
+  const whoop = providers.whoop ? createWhoopClient({ provider: providers.whoop, store, now }) : null;
 
   // What a provider may do besides reading its secrets: store refreshed ones (an OAuth token that
   // was renewed), and read the connection's own settings.
@@ -202,6 +205,12 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
       if (!active) off();
       const rec = own(uid, id);
       userLimit(uid, 'test');
+      if (rec.provider === 'whoop') {
+        const res = await whoop.check(uid, id);
+        // A refused sign-in was already marked (with its own message) inside the client.
+        if (store.get(uid, id) && !res.already) settle(uid, id, 'test', res, !res.ok && !res.retry);
+        return { ok: !!res.ok, status: res.status ?? null, ms: null, msg: res.ok ? null : res.msg, connection: store.get(uid, id) ? view(uid, store.get(uid, id)) : null };
+      }
       const ev = EVENTS.includes(type) ? type : rec.events[0] || 'workout.finished';
       const job = { id: newId('evt'), uid, conn: id, provider: rec.provider, ev: 'test', payload: envelope({ id: newId('evt'), type: ev, data: testData(ev, now()), at: now(), test: true }) };
       const res = await providers[rec.provider].deliver(job, name => store.reveal(uid, rec, name), extras(uid, rec));
@@ -313,6 +322,7 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
     start(everyMs) { if (active) outbox.start(everyMs); },
     stop() { outbox?.stop(); },
     // For the tests.
+    _whoop: () => whoop,
     _outbox: () => outbox,
     _store: () => store,
   };
