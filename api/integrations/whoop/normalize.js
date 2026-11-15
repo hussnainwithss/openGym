@@ -81,6 +81,9 @@ export function cycle(r, now = Date.now()) {
   return clean({
     id, start, end: end != null && end > start ? end : undefined, off: offsetOf(r.timezone_offset) ?? 0, st,
     strain: num(s.strain), kj: num(s.kilojoule), hr: num(s.average_heart_rate), hrMax: num(s.max_heart_rate),
+    // Steps sit outside the score (WHOOP counts them whether or not the cycle is scored), and are
+    // null when the device sent none.
+    steps: Number.isSafeInteger(r.step_count) && r.step_count >= 0 ? r.step_count : undefined,
   });
 }
 

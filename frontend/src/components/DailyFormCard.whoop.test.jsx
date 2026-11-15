@@ -17,7 +17,7 @@ afterEach(() => { act(() => root.unmount()); host.remove() })
 
 const today = todayISO()
 const yesterday = (() => { const d = new Date(today + 'T12:00:00'); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10) })()
-const day = { rec: 66, hrv: 61.5, rhr: 52, spo2: 96.4, skin: 33.7, sleepMin: 425, strain: 12.4, st: { sleep: 'scored', rec: 'scored', cycle: 'scored' }, _ts: 1 }
+const day = { rec: 66, hrv: 61.5, rhr: 52, spo2: 96.4, skin: 33.7, sleepMin: 425, strain: 12.4, steps: 8412, st: { sleep: 'scored', rec: 'scored', cycle: 'scored' }, _ts: 1 }
 
 describe('Daily form card: WHOOP today', () => {
   it('shows today’s WHOOP numbers with Health off, and none of the Health parts', () => {
@@ -28,6 +28,7 @@ describe('Daily form card: WHOOP today', () => {
     expect(w.textContent).toContain('66')
     expect(w.textContent).toContain('HRV (RMSSD)')
     expect(w.textContent).toContain('7 h 5 min')
+    expect(w.textContent).toContain('Steps')
     expect(host.querySelector('[data-daily-form="offer"]')).toBeNull()
     expect(host.textContent).not.toContain('check-in')
   })

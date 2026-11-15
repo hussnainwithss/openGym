@@ -151,6 +151,8 @@ function WhoopToday({ day, hm }) {
     ['Skin temp', v('rec', 'skin', x => fmtNum(Math.round(x * 10) / 10)), '°C'],
     ['Sleep', v('sleep', 'sleepMin', hm), ''],
     ['Strain', v('cycle', 'strain', x => fmtNum(Math.round(x * 10) / 10)), ''],
+    // Steps come with the cycle whether or not it is scored: shown when WHOOP has a count.
+    ['Steps', Number.isFinite(day.steps) ? fmtNum(day.steps) : null, ''],
   ].filter(([, value]) => value != null)
   if (!rows.length) return null
   return <div data-whoop-today>

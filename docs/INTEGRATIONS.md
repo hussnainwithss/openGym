@@ -249,7 +249,8 @@ temperature, sleep and strain show day by day. Read only: nothing is sent to WHO
   from its activity sheet. Your own edits and deletions always win over what WHOOP changes later.
 - **Weight.** WHOOP keeps one weight with no date, so openGym logs it when it changes, dated then.
   A weigh-in you type on the same day wins that day's value.
-- **Days.** Today's numbers are in Stats → Daily form, apart from the phone's own vitals. The WHOOP
+- **Days.** Recovery, HRV, resting heart rate, SpO2 and skin temperature (on a WHOOP 4.0 or newer),
+  sleep, strain and steps. Today's numbers are in Stats → Daily form, apart from the phone's own vitals. The WHOOP
   page (from the WHOOP sheet, or the Daily form's link) has the history and trends. The last 120
   days are on every device, offline too; older ones come from your server.
 - **Disconnect** forgets the sign-in on your server and keeps everything imported.
@@ -257,8 +258,11 @@ temperature, sleep and strain show day by day. Read only: nothing is sent to WHO
 
 ### Turning WHOOP on (self-hosters)
 
-1. On https://developer.whoop.com create an app with every read scope (recovery, cycles, workout,
-   sleep, profile, body measurement). Its **Redirect URL** is `ORIGIN` + `/api/integrations/oauth/callback`.
+1. Sign in to the WHOOP Developer Dashboard (https://developer-dashboard.whoop.com) with your WHOOP
+   account, create a team if it asks, and create an app with every read scope (recovery, cycles,
+   workout, sleep, profile, body measurement). Its **Redirect URL** is `ORIGIN` +
+   `/api/integrations/oauth/callback`, exactly: WHOOP compares it character for character. Copy the
+   Client ID and Client Secret; the secret stays in your server's `.env`, never in an app.
 2. Put its Client ID and Client Secret in `.env` and add `whoop` to `INTEGRATIONS`:
 
    ```
@@ -267,6 +271,13 @@ temperature, sleep and strain show day by day. Read only: nothing is sent to WHO
    WHOOP_CLIENT_SECRET=
    ```
 3. Restart the api container.
+
+A new WHOOP app is in WHOOP's Sandbox tier: up to 10 WHOOP members can connect to it, which covers
+a person or a family, and needs no review by WHOOP. More than that needs WHOOP's approval, asked for
+from the app's page in the dashboard (Open Request). A dashboard account can have up to 5 apps.
+
+The server stays under WHOOP's limits for one app (100 requests a minute, 10,000 a day) for every
+person together; a big first history on several accounts at once simply takes longer.
 
 Optional, for changes within seconds instead of 15 minutes: set the app's **Webhook URL** to
 `ORIGIN` + `/api/integrations/whoop/webhook`. WHOOP only calls public HTTPS addresses, so a server

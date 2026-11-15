@@ -119,8 +119,8 @@ export const rec = {
     cycle_id: cycle, sleep_id: sleep, user_id: 4242, created_at: iso(at), updated_at: iso(at), score_state: state,
     ...(state === 'SCORED' ? { score: { user_calibrating: false, recovery_score: score, resting_heart_rate: 52, hrv_rmssd_milli: 61.5, spo2_percentage: 96.4, skin_temp_celsius: 33.7 } } : {}),
   }),
-  cycle: ({ id, start, end = null, offset = '+00:00', state = 'SCORED', strain = 12.4 } = {}) => ({
-    id, user_id: 4242, created_at: iso(start), updated_at: iso(start), start: iso(start), ...(end ? { end: iso(end) } : {}), timezone_offset: offset, score_state: state,
+  cycle: ({ id, start, end = null, offset = '+00:00', state = 'SCORED', strain = 12.4, steps = null } = {}) => ({
+    id, user_id: 4242, created_at: iso(start), updated_at: iso(start), start: iso(start), ...(end ? { end: iso(end) } : {}), timezone_offset: offset, score_state: state, step_count: steps,
     ...(state === 'SCORED' ? { score: { strain, kilojoule: 9000, average_heart_rate: 70, max_heart_rate: 170 } } : {}),
   }),
 };

@@ -729,3 +729,15 @@ test('Disconnect forgets the sign-in and keeps everything imported', async () =>
   assert.equal(JSON.stringify(c.profile.S), before);
   assert.ok(c.h.whoopDays('u1', '2026-01-01', '2026-11-30').days.length > 0);
 });
+
+test('a WHOOP day carries its cycle’s steps, scored or not; a cycle without a count has none', () => {
+  const days = daysOf(docOf({ cycle: [
+    rec.cycle({ id: 21, start: T0 - 4 * DAY, steps: 8412 }),
+    rec.cycle({ id: 22, start: T0 - 3 * DAY, state: 'PENDING_SCORE', steps: 120 }),
+    rec.cycle({ id: 23, start: T0 - 2 * DAY, steps: null }),
+  ] }));
+  assert.equal(days['2026-11-11'].steps, 8412);
+  assert.equal(days['2026-11-12'].steps, 120);
+  assert.equal(days['2026-11-12'].strain, undefined);
+  assert.equal('steps' in days['2026-11-13'], false);
+});

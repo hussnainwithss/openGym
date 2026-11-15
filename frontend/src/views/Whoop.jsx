@@ -20,6 +20,7 @@ const CHARTS = [
   { key: 'rhr', label: 'Resting heart rate', unit: 'bpm', color: 'var(--red)' },
   { key: 'sleepMin', label: 'Sleep', unit: 'min', color: 'var(--indigo)' },
   { key: 'strain', label: 'Strain', unit: '', color: 'var(--orange)' },
+  { key: 'steps', label: 'Steps', unit: '', color: 'var(--blue)' },
 ]
 
 /** Days for a range: the server's history in chunks of at most 400 days, or the profile's copy. */
@@ -61,6 +62,7 @@ export default function Whoop() {
     Number.isFinite(x.rhr) ? 'RHR ' + fmtNum(x.rhr) : null,
     Number.isFinite(x.sleepMin) ? 'Sleep ' + hm(x.sleepMin) : null,
     Number.isFinite(x.strain) ? 'Strain ' + fmtNum(x.strain) : null,
+    Number.isFinite(x.steps) ? fmtNum(x.steps) + ' steps' : null,
   ].filter(Boolean).join(' · ') }
 
   return <div className="narrow" data-whoop-page>

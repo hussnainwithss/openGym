@@ -8,7 +8,7 @@
  * start date, unless a sleep-backed day already has that date. Each part keeps its own score
  * state: a scored sleep can sit next to a pending recovery.
  *
- *   { sleepMin, perf, eff, rec, hrv, rhr, spo2, skin, strain, kj,
+ *   { sleepMin, perf, eff, rec, hrv, rhr, spo2, skin, strain, kj, steps,
  *     st: { sleep, rec, cycle } }      each 'scored' | 'pending' | 'unscorable', absent when missing
  *
  * The profile gets the newest WINDOW_DAYS of them (S.whoopDays, written only here); a date that
@@ -61,6 +61,8 @@ export function daysOf(doc) {
 function cycleInto(day, c) {
   day.st.cycle = c.st;
   if (c.st === 'scored') { keepNum(day, 'strain', c.strain); keepNum(day, 'kj', c.kj, 0); }
+  // The cycle's steps, scored or not (WHOOP's step_count is outside the score).
+  keepNum(day, 'steps', c.steps, 0);
 }
 
 /** The whoop-vitals projector: S.whoopDays from the WHOOP store, restamping only what changed.

@@ -7,7 +7,7 @@
 
 const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v)
 const ISO = /^\d{4}-\d{2}-\d{2}$/
-const NUMS = ['sleepMin', 'perf', 'eff', 'rec', 'hrv', 'rhr', 'spo2', 'skin', 'strain', 'kj']
+const NUMS = ['sleepMin', 'perf', 'eff', 'rec', 'hrv', 'rhr', 'spo2', 'skin', 'strain', 'kj', 'steps']
 const PARTS = ['sleep', 'rec', 'cycle']
 const STATES = ['scored', 'pending', 'unscorable']
 
