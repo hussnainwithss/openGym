@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy</title>
+<meta name="robots" content="noindex">
+<style>
+  :root { --bg: #ffffff; --fg: #16181d; --dim: #5b6070; --line: #e3e5ea; --acc: #4d7c0f; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0c0e12; --fg: #eceef2; --dim: #a1a6b3; --line: #262a33; --acc: #a3e635; } }
+  html { background: var(--bg); color: var(--fg); }
+  body { margin: 0; font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 32px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+  p, li { color: var(--fg); }
+  .dim { color: var(--dim); font-size: 14px; }
+  a { color: var(--acc); }
+  ul { padding-inline-start: 20px; }
+  code { font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Privacy</h1>
+  <p class="dim">Last changed: 15 November 2026.</p>
+
+  <h2>The short version</h2>
+  <ul>
+    <li>This is a private, self-hosted openGym server. It is not run by a company and has no advertising,
+        analytics or tracking.</li>
+    <li>Your training log and anything you connect to it are stored on this server only, on hardware its
+        operator controls. Nothing is sold or shared with anyone.</li>
+    <li>WHOOP is only connected if you connect it yourself, and only reads from WHOOP. Nothing is sent to
+        WHOOP.</li>
+    <li>You can disconnect WHOOP or delete your account at any time.</li>
+  </ul>
+
+  <h2>What this server stores</h2>
+  <ul>
+    <li><strong>Your account:</strong> a display name, your passkeys (public keys only) and, if switched on,
+        a password hash.</li>
+    <li><strong>Your training log:</strong> workouts, plans, body weight, measurements, notes, photos and
+        videos you add, and your settings. Your own devices keep a copy so the app works offline.</li>
+    <li><strong>An activity log</strong> of sign-ins and account changes, with the address the request came
+        from, so the operator can spot misuse.</li>
+  </ul>
+
+  <h2>WHOOP</h2>
+  <p>If you choose Settings → Integrations → WHOOP → Connect and allow it on WHOOP's own page, this server
+     gets read access to your WHOOP data with these permissions: recovery, cycles, workouts, sleep, profile,
+     body measurement, and <code>offline</code> (so it can keep reading without asking you to sign in again).</p>
+  <p>What it keeps:</p>
+  <ul>
+    <li>Your WHOOP workouts, as activities in your training log (sport, time, length, distance, strain,
+        heart rate, energy).</li>
+    <li>Your weight, when it changes in your WHOOP profile, as a weigh-in.</li>
+    <li>Day by day: recovery, heart rate variability, resting heart rate, blood oxygen, skin temperature,
+        sleep, strain and steps, with your full WHOOP history from the day you connect.</li>
+    <li>Your WHOOP user id, to know which WHOOP account the data belongs to.</li>
+    <li>The sign-in WHOOP gives this server, encrypted on disk.</li>
+  </ul>
+  <p>It reads your WHOOP profile when you connect only to learn your WHOOP user id. Your name and email from
+     WHOOP are not stored.</p>
+  <p>How it is used: only to show you this data in openGym (your activities, weigh-ins, the Daily form and
+     the WHOOP page). It is not used for anything else, not combined with anyone else's data, and not given
+     to anyone.</p>
+
+  <h2>Who else is involved</h2>
+  <ul>
+    <li><strong>WHOOP</strong> sends the data to this server when it asks, and may tell this server that
+        something changed. WHOOP's own privacy policy covers what WHOOP does.</li>
+    <li><strong>Cloudflare</strong> carries the connection to this server (a Cloudflare tunnel). It handles
+        the traffic, as any network provider does, but this server does not use it to store your data.</li>
+    <li>Nobody else. No analytics, advertising or data brokers.</li>
+  </ul>
+
+  <h2>How long it is kept, and how to remove it</h2>
+  <ul>
+    <li><strong>Disconnect WHOOP</strong> (Settings → Integrations → WHOOP): this server forgets the WHOOP
+        sign-in and stops reading. What was already imported stays in your log until you delete it.</li>
+    <li><strong>Remove this server's access at WHOOP too</strong>: in the WHOOP app's settings, under the
+        apps connected to your account.</li>
+    <li><strong>Delete your account</strong> (Settings → Account → Delete my account): your account,
+        training log, uploads, WHOOP sign-in and WHOOP history are deleted from this server. Lines about
+        your account in the activity log stay until the log is cleared.</li>
+    <li>Backups the operator keeps of this server may hold your data until they are replaced.</li>
+  </ul>
+
+  <h2>Security</h2>
+  <p>Traffic is encrypted (HTTPS). Sign-in uses passkeys. Integration sign-ins are encrypted on disk, and the
+     data files are readable only by the server.</p>
+
+  <h2>Questions</h2>
+  <p>Ask the person who runs this server.</p>
+</main>
+</body>
+</html>
