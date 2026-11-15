@@ -5,6 +5,7 @@ import { t, tn } from '../lib/i18n.js'
 import { tappable } from '../lib/use-sheet-keyboard.js'
 import { Segmented } from './ui.jsx'
 import { dayNoteOf, dayNoteLine } from '../lib/day-notes.js'
+import { activitiesOf } from '../lib/activities.js'
 
 const normalizeMetric = value => value === 'vol' ? 'vol' : 'time'
 
@@ -37,6 +38,13 @@ export default function Heatmap({ S, onDay, metric: selectedMetric, onMetricChan
     a.vol += sessionVolume(w, S)
     a.min += Math.max(0, Math.round(workoutDuration(w) / 60000))
   })
+  // Activities (lib/activities.js: a run, a WHOOP session) count for time, not for volume: they
+  // have no sets. Fork: so a profile that trains mostly outside openGym's logger is not blank here.
+  if (!counts) for (const act of activitiesOf(S)) {
+    const a = agg[act.d] = agg[act.d] || { n: 0, vol: 0, min: 0 }
+    a.acts = (a.acts || 0) + 1
+    a.min += act.min
+  }
   const values = Object.values(agg).map(a => a[metricValue]).filter(v => v > 0).sort((a, b) => a - b)
   const q = p => (values.length ? values[Math.min(values.length - 1, Math.floor(p * values.length))] : 0)
   const t1 = q(0.25), t2 = q(0.5), t3 = q(0.75)
@@ -70,7 +78,7 @@ export default function Heatmap({ S, onDay, metric: selectedMetric, onMetricChan
       const note = !counts && !a && dayNoteOf(S, key)
       const cls = 'hm-c l' + level(a) + (note ? ' noted' : '') + (key === todayISO() ? ' today' : '') + (day > today ? ' future' : '')
       cells.push(<div key={d} className={cls}
-        title={key + (a && counts ? ` · ${countLabel ? countLabel(a.n) : a.n}` : a ? ` · ${tn('{0} workout', '{0} workouts', a.n)} · ${t('{0} min', a.min)} · ${fmtVol(a.vol, S.unit)}` : note ? ` · ${dayNoteLine(note, t)}` : '')}
+        title={key + (a && counts ? ` · ${countLabel ? countLabel(a.n) : a.n}` : a ? ' · ' + [a.n ? tn('{0} workout', '{0} workouts', a.n) : null, a.acts ? (a.acts === 1 ? '1 activity' : a.acts + ' activities') : null, t('{0} min', a.min), a.n ? fmtVol(a.vol, S.unit) : null].filter(Boolean).join(' · ') : note ? ` · ${dayNoteLine(note, t)}` : '')}
         {...tappable(a || note ? () => onDay?.(key) : undefined)} />)
     }
     cols.push(<div key={wk} className="hm-col">{cells}</div>)

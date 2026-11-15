@@ -54,7 +54,7 @@ import { tappable } from '../lib/use-sheet-keyboard.js'
 import { isWarmupRow } from '../lib/workout-model.js'
 import { exView, exUnitOf, shownWeight } from '../lib/ex-unit.js'
 import { isOn } from '../lib/modules.js'
-import { activityStimuli } from '../lib/activities.js'
+import { activityStimuli, activityDays } from '../lib/activities.js'
 import { isoRun } from '../lib/bidi.js'
 
 // Set 1 to 5 on the per-set chart — system colours, so each line keeps its hue in dark mode.
@@ -614,6 +614,9 @@ export default function Stats() {
   const bw30 = S.bodyweight.filter(b => weighInAt(b) > now - 30 * 86400000)
   const bwDelta30 = bw30.length > 1 ? bw30[bw30.length - 1].w - bw30[0].w : null
   const workouts = S.workouts
+  // Activities (WHOOP sessions, runs from the health store): enough to show the cards that read them.
+  const activityDayset = useMemo(() => activityDays(S), [S.activities, S.whoopActs, S.whoopChoice, S.whoopStrength, S.workouts]) // eslint-disable-line react-hooks/exhaustive-deps
+  const hasActivities = activityDayset.size > 0
   const monthW = workouts.filter(w => workoutDay(w)?.slice(0, 7) === todayISO().slice(0, 7)).length
   const lifetime = lifetimeVolume(S)
   const totals = useMemo(() => lifetimeTotals(S), [S.workouts]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -939,13 +942,14 @@ export default function Stats() {
       </div>}
     </div>
 
-    {workouts.length > 0 && motivationOn && <StreakCard info={streak} onHelp={() => calendarSheet(undefined, { help: true })} />}
+    {/* Fork: with sport counting for the streak, activities alone (a WHOOP history) show it too. */}
+    {(workouts.length > 0 || (S.activityStreak === true && hasActivities)) && motivationOn && <StreakCard info={streak} onHelp={() => calendarSheet(undefined, { help: true })} />}
     {/* The month's challenges and the trophy shelf (lib/challenges.js), folded to one line. */}
     {workouts.length > 0 && motivationOn && <ChallengesStatsCard S={S} />}
     {/* Daily form (v1.4.5): vitals from the phone's health store and what the check-ins say. */}
     {(on('health') || (on('integrations') && hasWhoopDays(S))) && <DailyFormCard S={S} />}
     {/* Cardio minutes a week, with a goal if you set one (D#84). */}
-    {workouts.length > 0 && <CardioWeekCard S={S} />}
+    {(workouts.length > 0 || hasActivities) && <CardioWeekCard S={S} />}
 
     <div className="card">
       <SeasonDeco spot="stats-heatmap" />
@@ -954,7 +958,7 @@ export default function Stats() {
         S={S}
         metric={S.heatmapMetric === 'vol' ? 'vol' : 'time'}
         onMetricChange={metric => useStore.getState().update(s => { s.heatmapMetric = metric })}
-        onDay={iso => { const ws = workouts.filter(w => workoutDay(w) === iso); if (ws.length === 1) workoutDetailSheet(ws[0]); else if (ws.length) calendarSheet(iso); else dayOverrideSheet(iso) }}
+        onDay={iso => { const ws = workouts.filter(w => workoutDay(w) === iso); if (ws.length === 1) workoutDetailSheet(ws[0]); else if (ws.length || activityDayset.has(iso)) calendarSheet(iso); else dayOverrideSheet(iso) }}
       />
     </div>
 
