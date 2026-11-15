@@ -85,3 +85,21 @@ test('a device cannot write what only the server writes: its whoopActs are repla
   assert.equal(put2.status, 200);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.dataDir, 'state-u_w_1.json'), 'utf8')).whoopActs, stored.whoopActs);
 });
+
+test('GET /api/whoop/days reads the server’s WHOOP history, older than the profile’s 120 days too, for its own profile only', async t => {
+  const h = await startServer(t, WHOOP);
+  // a stored WHOOP history with one night two years back (normalized shape, whoop/store.js)
+  const start = Date.UTC(2024, 10, 1, 22), end = start + 8 * 3600_000;
+  const doc = { v: 1, whoopUser: '4242', records: { cycle: {}, recovery: {}, workout: {},
+    sleep: { 'aaaaaaaa-0000-4000-8000-000000000001': { id: 'aaaaaaaa-0000-4000-8000-000000000001', start, end, off: 0, nap: false, st: 'scored', asleepMin: 400 } } },
+    sleepCycle: {}, cursors: {}, pending: {}, candidates: {}, due: {}, body: null, obs: [], proj: { dirty: false, version: 0, at: 0 } };
+  fs.mkdirSync(path.join(h.dataDir, 'whoop'), { recursive: true });
+  fs.writeFileSync(path.join(h.dataDir, 'whoop', 'u-u_w_1.json'), JSON.stringify(doc));
+  const get = (q, cookie = true) => fetch(h.api + '/api/whoop/days' + q, { headers: cookie ? { Cookie: `gymsid=${mintSession('u_w_1')}`, 'Sec-Fetch-Site': 'same-origin' } : {} });
+  const r = await get('?from=2024-10-15&to=2024-11-30');
+  assert.equal(r.status, 200);
+  assert.deepEqual((await r.json()).days.map(d => [d.d, d.sleepMin]), [['2024-11-02', 400]]);
+  assert.equal((await get('?from=2024-01-01&to=2026-01-01')).status, 400);
+  assert.equal((await get('?from=nope&to=2024-11-30')).status, 400);
+  assert.equal((await get('?from=2024-10-15&to=2024-11-30', false)).status, 401);
+});

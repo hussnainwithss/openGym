@@ -616,6 +616,7 @@ function WhoopDetail({ close, conn: initial, server, toast }) {
       </Row>
       {c.info?.backfill && c.info.backfill !== 'done' && <Row icon="download" iconTint="var(--blue)" title="Bringing in your history" value={c.info.backfill} />}
       <Row icon="clock" iconTint="var(--blue)" title="Last sync" value={c.lastOk ? fmtAgo(c.lastOk) : t('Not yet')} />
+      <Row icon="chart" iconTint="var(--teal)" title="History and trends" accessory="chevron" onClick={() => { close(); window.location.hash = '#/whoop' }} />
       {c.lastError && <Row icon="warning" iconTint={trouble ? 'var(--orange)' : 'var(--grey)'} title={<span className="intg-line">{c.lastError.msg}</span>}
         subtitle={c.lastError.at ? fmtAgo(c.lastError.at) : null} />}
     </Section>

@@ -34,6 +34,7 @@ import { createWhoopStore } from './whoop/store.js';
 import { createWhoopSync } from './whoop/sync.js';
 import { projectActivities } from './whoop/activities.js';
 import { projectWeight } from './whoop/weigh-ins.js';
+import { projectDays, daysBetween } from './whoop/days.js';
 
 const on = v => /^(1|true|yes|on)$/i.test(String(v || ''));
 
@@ -98,7 +99,7 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
   // The profile access server.js hands over once its own pieces exist (attach), and what WHOOP
   // data becomes in a profile (projectors, one per capability).
   const deps = {};
-  const projectors = [projectActivities, projectWeight];
+  const projectors = [projectActivities, projectWeight, projectDays];
   const whoopStore = createWhoopStore({ dataDir });
   const seenTraces = new Map();   // WHOOP webhook trace ids already taken
   const whoopSync = whoop ? createWhoopSync({ client: whoop, conns: store, wstore: whoopStore, now, deps, projectors }) : null;
@@ -394,6 +395,18 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
       }
       return { ok: true };
     } : null,
+
+    /** GET /api/whoop/days: a profile's WHOOP days from its WHOOP store, `from` to `to` (ISO,
+     *  inclusive, at most 400 days). Kept after a disconnect, like everything imported (D12). */
+    whoopDays(uid, from, to) {
+      const iso = /^\d{4}-\d{2}-\d{2}$/;
+      if (!iso.test(String(from)) || !iso.test(String(to)) || from > to) fail(400, 'from and to must be dates, from first', 'range');
+      if ((Date.parse(to) - Date.parse(from)) / 86_400_000 > 400) fail(400, 'at most 400 days at a time', 'range');
+      let doc;
+      try { doc = whoopStore.load(uid); }
+      catch (e) { console.error('whoop: cannot read the store of', uid, e.message); fail(503, 'your WHOOP history cannot be read right now', 'unreadable'); }
+      return { days: daysBetween(doc, from, to), whoopUser: doc.whoopUser || null };
+    },
 
     /** server.js: the users, and the profile reader and writer (writeStateAs), once they exist. */
     attach({ users, readState, writeState } = {}) { Object.assign(deps, { users, readState, writeState }); },

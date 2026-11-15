@@ -244,3 +244,16 @@ describe('activities: WHOOP strength sessions next to a logged workout (fork, D1
     expect(choiceOf({ ...cleared, whoopStrength: 'skip', workouts: [gym] }, 'w2', lift).ov).toBe('skip')
   })
 })
+
+describe('WHOOP days in a merge (fork, whoop-vitals)', async () => {
+  const { mergeStates, takeServerOwned } = await import('./sync-merge.js')
+  it('a device copy never brings back a day the server cleared or aged out', () => {
+    const days = n => Object.fromEntries(Array.from({ length: n }, (_, i) => [`2026-0${1 + Math.floor(i / 28)}-${String(1 + (i % 28)).padStart(2, '0')}`, { rec: i, _ts: 1 }]))
+    const phone = { whoopDays: { ...days(121), '2026-05-01': { rec: 9, _ts: 900 } } }
+    const server = { whoopDays: { ...days(121), '2026-05-01': { cleared: 1, _ts: 100 } } }
+    // a merge of two copies keeps 120 dates at most
+    expect(Object.keys(mergeStates(phone, server).whoopDays).length).toBe(120)
+    // and the server's copy wins whole
+    expect(takeServerOwned(mergeStates(phone, server), server).whoopDays['2026-05-01']).toEqual({ cleared: 1, _ts: 100 })
+  })
+})

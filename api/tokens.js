@@ -62,7 +62,7 @@ export const KEY_CATEGORY = {
 // offered), the Coach's conversation, the live workout, linked services, and the server's notes.
 // Your own sounds (`sounds`, v1.4.5) are recordings of yours like the photos.
 // whoopSeen (fork): the server's own note of which WHOOP weights it put in, nobody else's business.
-const NEVER = new Set(['whoopSeen', 'dayPhotos', 'exMedia', 'dayForm', 'avatar', 'sounds', 'active', 'coach', 'integrations', '_unstamped', '_prior', 'deleted', 'edited', 'undone']);
+const NEVER = new Set(['whoopSeen', 'whoopDays', 'dayPhotos', 'exMedia', 'dayForm', 'avatar', 'sounds', 'active', 'coach', 'integrations', '_unstamped', '_prior', 'deleted', 'edited', 'undone']);
 const NEVER_RE = /photo|avatar|video|secret|token|password|integration/i;
 // What the server keeps itself and the token reads along with the document, never writes.
 const BOOK = new Set(['_rev', '_wid', '_wids', '_ts']);

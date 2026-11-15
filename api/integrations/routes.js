@@ -99,6 +99,12 @@ export function integrationRoutes({ json, readBody, readRaw = null, readSession,
       json(res, out.status || 401, { error: 'refused' });
     },
 
+    // WHOOP history beyond the 120 days every device has (fork, whoop-vitals): the WHOOP page.
+    'GET /api/whoop/days': guard(async (req, res, user) => {
+      const q = new URL(req.url, 'http://x').searchParams;
+      json(res, 200, hub.whoopDays(user.id, (q.get('from') || '').slice(0, 10), (q.get('to') || '').slice(0, 10)));
+    }),
+
     'GET /api/integrations/log': guard(async (req, res, user) => {
       const id = new URL(req.url, 'http://x').searchParams.get('id');
       json(res, 200, hub.log(user.id, id ? id.slice(0, 40) : null));

@@ -618,3 +618,82 @@ test('the day and time are the person’s, fixed when the weight was observed', 
   assert.equal(r.d, '2026-11-14');
   assert.equal(r.at, '23:55');
 });
+
+/* ---- whoop-vitals: WHOOP days ---- */
+
+const { daysOf } = await import('../integrations/whoop/days.js');
+const { scopedState } = await import('../tokens.js');
+const H = 3600_000;
+const N = (coll, list) => Object.fromEntries(list.map(r => [coll === 'recovery' ? String(r.cycle_id) : String(r.id), (NORM[coll])(r, T0)]));
+const { NORMALIZE: NORM } = await import('../integrations/whoop/normalize.js');
+const docOf = ({ sleep = [], recovery = [], cycle = [] }) => ({ records: { sleep: N('sleep', sleep), recovery: N('recovery', recovery), cycle: N('cycle', cycle), workout: {} }, sleepCycle: {} });
+
+test('a WHOOP day is the local date the person woke up, with that sleep’s recovery and its cycle’s strain', () => {
+  // asleep 22:00-06:30 at +03:00: 19:00-03:30 UTC, waking on the 14th there
+  const s = rec.sleep({ cycle: 7, start: Date.UTC(2026, 10, 13, 19), end: Date.UTC(2026, 10, 14, 3, 30), offset: '+03:00' });
+  const nap = rec.sleep({ cycle: 7, start: Date.UTC(2026, 10, 14, 11), end: Date.UTC(2026, 10, 14, 12, 30), nap: true, offset: '+03:00' });
+  const days = daysOf(docOf({ sleep: [s, nap], recovery: [rec.recovery({ cycle: 7, sleep: s.id, at: T0 })], cycle: [rec.cycle({ id: 7, start: Date.UTC(2026, 10, 13, 19), offset: '+03:00' })] }));
+  assert.deepEqual(Object.keys(days), ['2026-11-14']);
+  const d = days['2026-11-14'];
+  assert.equal(d.sleepMin, 420);   // the main sleep's asleep time, not the nap's, not time in bed
+  assert.deepEqual([d.rec, d.hrv, d.rhr, d.spo2, d.skin, d.strain], [66, 61.5, 52, 96.4, 33.7, 12.4]);
+  assert.deepEqual(d.st, { sleep: 'scored', rec: 'scored', cycle: 'scored' });
+});
+
+test('strain shows without a recovery, a pending recovery says so, and a cycle with no sleep is a day of its own', () => {
+  const s = rec.sleep({ cycle: 8, start: T0 - 9 * H, end: T0 - H });
+  const days = daysOf(docOf({ sleep: [s], recovery: [rec.recovery({ cycle: 8, sleep: s.id, at: T0, state: 'PENDING_SCORE' })], cycle: [rec.cycle({ id: 8, start: T0 - 9 * H }), rec.cycle({ id: 9, start: T0 - 3 * DAY })] }));
+  const today = days['2026-11-15'];
+  assert.equal(today.st.rec, 'pending');
+  assert.equal(today.rec, undefined);
+  assert.equal(today.strain, 12.4);
+  assert.equal(days['2026-11-12'].strain, 12.4);
+  assert.deepEqual(days['2026-11-12'].st, { cycle: 'scored' });
+});
+
+test('a sleep-backed day keeps its date against a cycle-only one, and the longer of two main sleeps decides, in any order', () => {
+  const short = rec.sleep({ cycle: 10, start: T0 - 4 * H, end: T0 - 2 * H });
+  const long = rec.sleep({ cycle: 11, start: T0 - 12 * H, end: T0 - 3 * H });
+  const cycles = [rec.cycle({ id: 10, start: T0 - 4 * H, strain: 3 }), rec.cycle({ id: 11, start: T0 - 12 * H, strain: 15 }), rec.cycle({ id: 12, start: T0 - H, strain: 1 })];
+  for (const order of [[short, long], [long, short]]) {
+    const d = daysOf(docOf({ sleep: order, cycle: [...cycles].reverse() }))['2026-11-15'];
+    assert.equal(d.strain, 15);
+    assert.equal(d.sleepMin, 420);
+  }
+});
+
+test('the profile gets the days once, a day WHOOP no longer has is cleared, and another account clears them all', async () => {
+  const w = fakeWhoop();
+  history(w, 3, { from: T0 - 5 * DAY });
+  const c = await backfilled({ w });
+  const S = () => c.profile.S;
+  const dates = Object.keys(S().whoopDays).sort();
+  assert.equal(dates.length, 3);
+  const writes = c.profile.writes;
+  c.clock.t += 16 * MIN;
+  await c.sync.tick();
+  assert.equal(c.profile.writes, writes, 'nothing new, no write');
+  // WHOOP deletes the newest night and its cycle (seen by a webhook)
+  const [cy, sl] = [w.cycle.at(-1), w.sleep.at(-1)];
+  w.cycle.pop(); w.sleep.pop(); w.recovery.pop();
+  deliver(c, { user_id: 4242, id: sl.id, type: 'sleep.deleted', trace_id: 'x1' });
+  await settle(c);
+  c.h._whoopStore().addDue('u1', 'cycle', String(cy.id));
+  c.clock.t += MIN; await c.sync.tick();
+  assert.equal(S().whoopDays[dates[2]].cleared, 1);
+  // another WHOOP account: every old day cleared
+  w.userId = 999; w.cycle.length = 0; w.sleep.length = 0; w.recovery.length = 0;
+  const st = new URL(c.h.oauthStart('u1', 'whoop', CB)).searchParams.get('state');
+  await c.h.oauthFinish({ state: st, code: 'good' }, 'u1');
+  await c.sync.tick();
+  assert.ok(Object.values(S().whoopDays).every(d => d.cleared === 1));
+});
+
+test('API tokens never see WHOOP days or the server’s own notes', () => {
+  const S = { whoopDays: { '2026-11-14': { rec: 60, _ts: 1 } }, whoopSeen: { a: 1 }, activities: {}, whoopActs: {} };
+  const all = { workouts: 'view', plans: 'view', bodyweight: 'view', measurements: 'view', notes: 'view' };
+  const out = scopedState(S, all);
+  assert.equal(out.whoopDays, undefined);
+  assert.equal(out.whoopSeen, undefined);
+  assert.equal(scopedState(S, { plans: 'view' }).whoopActs, undefined);
+});

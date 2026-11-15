@@ -1,0 +1,12 @@
+# Glossary
+
+| Term | What it is in this repo | Not to be confused with | Code | Set by | Status |
+|---|---|---|---|---|---|
+| Activity | Training done outside openGym's logger (a run, a ride, a WHOOP session), one entry per session in S.activities | Workout: a session logged in openGym (S.workouts) | frontend/src/lib/activities.js | docs/specs/completed/261115.1414-whoop-integration.md | confirmed |
+| Vitals | Per-day body readings (sleep, resting heart rate, HRV, recovery, strain) from a wearable | Daily form: the person's own 1-5 self ratings (S.dayForm) | frontend/src/lib/vitals.js | docs/specs/completed/261115.1414-whoop-integration.md D14 | confirmed |
+| WHOOP choice | The person's explicit keep, merge or skip for one WHOOP strength session, kept apart from the activity; the default and the workout it merges into are worked out when it is read | Activity: the session itself | api/coach/core/whoop-activities.js | docs/specs/completed/261115.1414-whoop-integration.md D21 | confirmed |
+| WHOOP connection | A person's linked WHOOP account on this server, its tokens sealed by the integration hub, bound to one WHOOP user id | Strava connection: upload only | api/integrations/providers/whoop.js | docs/specs/completed/261115.1414-whoop-integration.md D1, D20 | confirmed |
+| WHOOP day | One local wake date of WHOOP sleep, recovery and strain, each part with its own score state | Daily form: the person's self ratings | api/integrations/whoop/days.js | docs/specs/completed/261115.1414-whoop-integration.md D13, D14 | confirmed |
+| WHOOP store | The server-only file holding a person's full WHOOP history, its cursors and what still has to reach the profile | The profile document, which syncs to every device | api/integrations/whoop/store.js | docs/specs/completed/261115.1414-whoop-integration.md D14 | confirmed |
+| WHOOP update | WHOOP's latest fields, or its deletion, for an imported WHOOP activity, kept apart from the activity so the person's own edits win | The activity entry | api/integrations/whoop/activities.js | docs/specs/completed/261115.1414-whoop-integration.md D23 | confirmed |
+| WHOOP weigh-in | A weigh-in reading with src 'whoop', added when the weight in the WHOOP profile changes; a typed reading wins its day | A typed weigh-in (no src) | api/integrations/whoop/weigh-ins.js | docs/specs/completed/261115.1414-whoop-integration.md D11 | confirmed |

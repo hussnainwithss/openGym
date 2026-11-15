@@ -25,6 +25,7 @@ import { ChallengesStatsCard } from '../components/Challenges.jsx'
 import { wrappedYears } from '../lib/wrapped.js'
 import { openWrapped, openMonthStory } from '../lib/wrapped-ui.js'
 import DailyFormCard from '../components/DailyFormCard.jsx'
+import { hasWhoopDays } from '../lib/whoop-days.js'
 import { offeredMonth, monthLabel } from '../lib/month-story.js'
 import { streakInfo } from '../lib/streak.js'
 import { reportSheet } from '../components/ReportSheet.jsx'
@@ -942,7 +943,7 @@ export default function Stats() {
     {/* The month's challenges and the trophy shelf (lib/challenges.js), folded to one line. */}
     {workouts.length > 0 && motivationOn && <ChallengesStatsCard S={S} />}
     {/* Daily form (v1.4.5): vitals from the phone's health store and what the check-ins say. */}
-    {on('health') && <DailyFormCard S={S} />}
+    {(on('health') || (on('integrations') && hasWhoopDays(S))) && <DailyFormCard S={S} />}
     {/* Cardio minutes a week, with a goal if you set one (D#84). */}
     {workouts.length > 0 && <CardioWeekCard S={S} />}
 

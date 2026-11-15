@@ -76,6 +76,7 @@
  * exercise, weigh-in or favourite the other device had removed meanwhile.
  */
 import { beatsWeight } from './exercises.js'
+import { windowOf } from '../../../api/coach/core/whoop-days.js'
 import { bestWeightForEntry } from './history.js'
 import { convertStateUnit, convertBodyWeight } from './units.js'
 import { sanitizeAccent } from './accent.js'
@@ -93,10 +94,10 @@ const list = v => (Array.isArray(v) ? v : [])
 // recoverySessions is a sauna or an ice bath (lib/recovery-sessions.js), one entry per session;
 // gymNotes a note pinned at one gym, journalFolders a saved journal filter (lib/journal.js),
 // activities a run or a football match (lib/activities.js), one entry per session.
-export const STAMPED_MAPS = ['balanceOverrides', 'loadKind', 'plates', 'dbLoad', 'dumbbells', 'stackWeights', 'exUnit', 'dayNotes', 'dayPhotos', 'exMerged', 'exGym', 'sessionTargets', 'exMedia', 'recoverySessions', 'gymNotes', 'journalFolders', 'dayForm', 'activities', 'whoopActs', 'whoopChoice']
+export const STAMPED_MAPS = ['balanceOverrides', 'loadKind', 'plates', 'dbLoad', 'dumbbells', 'stackWeights', 'exUnit', 'dayNotes', 'dayPhotos', 'exMerged', 'exGym', 'sessionTargets', 'exMedia', 'recoverySessions', 'gymNotes', 'journalFolders', 'dayForm', 'activities', 'whoopActs', 'whoopChoice', 'whoopDays']
 // Keys only the server writes (WHOOP data, fork; api/sync-stamps.js SERVER_OWNED): the server keeps
 // its copy whatever a device sends, and a device takes the server's copy whole when it merges one.
-export const SERVER_OWNED = ['whoopActs', 'whoopSeen']
+export const SERVER_OWNED = ['whoopActs', 'whoopSeen', 'whoopDays']
 /** `merged` with the server's copy of every server-owned key (mutates and returns it). */
 export function takeServerOwned(merged, server) {
   if (!merged || typeof merged !== 'object') return merged
@@ -731,7 +732,7 @@ function applyDeletions(S, deleted) {
 const OWN_MERGE = new Set([
   '_ts', '_rev', '_wid', '_wids', '_unstamped', '_prior', 'active', 'unit', 'unitSet', 'resetAt', 'resetIds', 'deleted', 'edited', 'undone', 'routineOrder',
   'workouts', 'routines', 'customEx', 'equipProfiles', 'gymCards', 'bodyweight', 'measurements', 'favEx',
-  'exWeights', 'balanceOverrides', 'loadKind', 'plates', 'dbLoad', 'dumbbells', 'stackWeights', 'exUnit', 'dayNotes', 'dayPhotos', 'exMerged', 'exGym', 'sessionTargets', 'exMedia', 'recoverySessions', 'gymNotes', 'journalFolders', 'dayForm', 'activities', 'whoopActs', 'whoopChoice',
+  'exWeights', 'balanceOverrides', 'loadKind', 'plates', 'dbLoad', 'dumbbells', 'stackWeights', 'exUnit', 'dayNotes', 'dayPhotos', 'exMerged', 'exGym', 'sessionTargets', 'exMedia', 'recoverySessions', 'gymNotes', 'journalFolders', 'dayForm', 'activities', 'whoopActs', 'whoopChoice', 'whoopDays',
 ])
 // Stamped per key instead of whole: one day of the plan, one exercise's note or bar, one programme
 // (lib/programmes.js; the running one, `programme`, is a plain setting).
@@ -975,6 +976,8 @@ export function mergeStates(a0, b0, { prefer } = {}) {
   for (const f of STAMPED_MAPS) {
     if (n[f] || o[f]) out[f] = clone(mergeStampedMap(n[f], o[f], prefer))
   }
+  // WHOOP days (fork): the newest 120 dates, as the server keeps them, whatever the copies held.
+  if (out.whoopDays) out.whoopDays = windowOf(out.whoopDays)
   // Each stamped setting and plan day from the copy that changed it last (the `edited` section
   // above). `prefer` (sign-in) keeps the preferred side's, stamps and all.
   if (!prefer) {

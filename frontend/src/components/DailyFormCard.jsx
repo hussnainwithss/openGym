@@ -15,6 +15,8 @@ import { Button } from './ui.jsx'
 import { formInsights, insightProgress, workoutPerformance } from '../lib/form-insights.js'
 import { displayScale } from '../lib/effort.js'
 import CardHead from './CardHead.jsx'
+import { isOn } from '../lib/modules.js'
+import { whoopToday, partValue } from '../lib/whoop-days.js'
 
 // The good side of each factor, as the row's title.
 const FACTOR_LABEL = {
@@ -71,21 +73,25 @@ export default function DailyFormCard({ S }) {
     const off = onHealthChange(f => { if (!gone) setH(f) })
     return () => { gone = true; off() }
   }, [])
-  const vitals = h?.readVitals ? h.vitals : null
+  // The phone's vitals, the check-ins and the insights are the Health module's; WHOOP's day
+  // (fork) is the Integrations module's. The card shows whichever of the two is on.
+  const healthOn = isOn(S, 'health')
+  const vitals = healthOn && h?.readVitals ? h.vitals : null
   const today = todayISO()
-  const days = formDays(S)
+  const whoop = isOn(S, 'integrations') ? whoopToday(S, today) : null
+  const days = healthOn ? formDays(S) : []
   const vs = vitals ? vitalsSummary(vitals, today) : null
   const anyVital = vs && Object.values(vs).some(Boolean)
-  const offer = offerCheckin(S)
+  const offer = healthOn && offerCheckin(S)
   // The comparison reads every workout (about 120 ms over 2,000 of them), so only for the card that
   // shows it: not for the one-time offer, not when the card is not there at all.
-  const needPerf = days.length > 0 || !!anyVital || S.dailyForm === true
+  const needPerf = healthOn && (days.length > 0 || !!anyVital || S.dailyForm === true)
   const perf = useMemo(() => (needPerf ? cachedPerformance(S) : []), [needPerf, S.workouts, S.unit, S.oneRmFormula, S.volumeWarmups, S.volumeBodyweight, S.bodyweight]) // eslint-disable-line react-hooks/exhaustive-deps
   const insights = useMemo(() => (needPerf ? formInsights(S, { vitals, perf }) : []), [needPerf, perf, S.dayForm, vitals]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (!days.length && !anyVital && S.dailyForm !== true && !offer) return null
+  if (!days.length && !anyVital && !(healthOn && S.dailyForm === true) && !offer && !whoop) return null
   // Asked once, here and never on Start: switched on, the check-in opens before the next workout.
   const setOn = v => useStore.getState().update(s => { s.dailyForm = v })
-  if (offer && !days.length && !anyVital) return <div className="card dform-card" data-daily-form="offer">
+  if (offer && !days.length && !anyVital && !whoop) return <div className="card dform-card" data-daily-form="offer">
     <CardHead icon="moon" tint="var(--indigo)" eyebrow={t('Daily form')} title={t('Check in before workouts?')}
       sub={t('Four taps on sleep, energy, soreness and stress. On a rough day openGym offers to go lighter, and after a few weeks you see what your good days have in common.')} />
     <div className="card-head-indent row" style={{ gap: 8, marginTop: 10 }}>
@@ -119,6 +125,7 @@ export default function DailyFormCard({ S }) {
       </div>
       <div className="small dim dfc-src">{platform === 'ios' ? t('From Apple Health, read-only, on this phone only.') : t('From Health Connect, read-only, on this phone only.')}</div>
     </>}
+    {whoop && <WhoopToday day={whoop} hm={hm} />}
     {shown.length > 0 && <div className="dfc-ins" data-insights>
       {shown.map(x => { const w = insightWords(x, S); return <div className="dfc-in" key={x.factor + x.metric}>
         <div className="dfc-in-m"><span className="dfc-in-t">{w.title}</span><span className="dfc-in-s">{w.sub}</span></div>
@@ -128,6 +135,28 @@ export default function DailyFormCard({ S }) {
     {!shown.length && flatOnes.length > 0 && <div className="small muted dfc-note">{t('So far your good and rough days end in about the same workouts. Nice and steady.')}</div>}
     {progress && <div className="small muted dfc-note">{t('Insights show up once there is enough to compare: {0} of {1} workouts so far.', fmtNum(Math.min(progress.have, progress.need)), fmtNum(progress.need))}</div>}
     {insights.length > 0 && <div className="small dim dfc-note">{t('Patterns, not proof. Sleep is rarely the only thing that changed that day.')}</div>}
+  </div>
+}
+
+// Today from WHOOP (fork): its own block, its own labels (HRV here is RMSSD), never merged with the
+// phone's vitals above. A part WHOOP has not scored yet says so.
+function WhoopToday({ day, hm }) {
+  const v = (part, key, f) => { const x = partValue(day, part, key); return typeof x === 'number' ? f(x) : x }
+  const rows = [
+    ['Recovery', v('rec', 'rec', x => fmtNum(x)), '%'],
+    ['HRV (RMSSD)', v('rec', 'hrv', x => fmtNum(Math.round(x))), 'ms'],
+    ['Resting heart rate', v('rec', 'rhr', x => fmtNum(x)), 'bpm'],
+    ['SpO2', v('rec', 'spo2', x => fmtNum(Math.round(x * 10) / 10)), '%'],
+    ['Skin temp', v('rec', 'skin', x => fmtNum(Math.round(x * 10) / 10)), '°C'],
+    ['Sleep', v('sleep', 'sleepMin', hm), ''],
+    ['Strain', v('cycle', 'strain', x => fmtNum(Math.round(x * 10) / 10)), ''],
+  ].filter(([, value]) => value != null)
+  if (!rows.length) return null
+  return <div data-whoop-today>
+    <div className="dfc-vitals">
+      {rows.map(([label, value, unit]) => <Vital key={label} label={label} value={value} unit={typeof value === 'number' || /\d/.test(String(value)) ? unit : ''} />)}
+    </div>
+    <div className="small dim dfc-src">From WHOOP, pulled by your server. <a href="#/whoop">History and trends</a></div>
   </div>
 }
 

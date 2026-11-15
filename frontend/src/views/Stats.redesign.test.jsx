@@ -293,3 +293,16 @@ describe('Stats: no control inside a control', () => {
     expect(nested).toEqual([])
   })
 })
+
+describe('Stats: WHOOP today with the Health module off (fork)', () => {
+  const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })()
+  const day = { rec: 66, hrv: 61.5, rhr: 52, sleepMin: 425, strain: 12.4, st: { sleep: 'scored', rec: 'scored', cycle: 'scored' }, _ts: 1 }
+  it('Integrations on: the Daily form card shows WHOOP’s day; off: no card at all', () => {
+    mount(small({ modules: { health: false, integrations: true }, whoopDays: { [today]: day } }))
+    expect(card('[data-whoop-today]')).toBeTruthy()
+    act(() => root.unmount())
+    host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host)
+    mount(small({ modules: { health: false, integrations: false }, whoopDays: { [today]: day } }))
+    expect(card('[data-daily-form]')).toBeNull()
+  })
+})
